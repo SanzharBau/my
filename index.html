@@ -200,6 +200,42 @@ html.calm .btn.sec{background:var(--card2);color:var(--text)}
 .past .d{font-size:12px;color:var(--mute);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .past .p{margin-top:4px;font-size:15px;color:var(--text);opacity:.85;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:pre-wrap}
 .bigta{width:100%;min-height:50vh;border:1px solid var(--line);border-radius:16px;background:var(--card2);color:var(--text);font:inherit;font-size:17px;line-height:1.7;padding:14px;resize:vertical;outline:none}
+/* ====== Дела: планировщик ====== */
+.now{border:1.5px solid var(--line)}
+.now.on{border-color:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 12%,transparent)}
+.now .nt{font-size:22px;font-weight:700;letter-spacing:-.01em;margin-top:4px;line-height:1.3;cursor:pointer;word-wrap:break-word}
+.now .why{margin-top:6px;font-size:14px;color:var(--mute)}
+.ftime{font-size:46px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;margin-top:10px}
+.ftime.ov{color:var(--r)}
+.fbar{height:6px;border-radius:4px;background:var(--card2);overflow:hidden;margin-top:6px}
+.fbar i{display:block;height:100%;background:var(--ok);transition:width 1s linear}
+.nudge{margin-top:12px;padding:11px 13px;border-radius:14px;background:color-mix(in srgb,var(--y) 15%,var(--card2));font-size:14px;line-height:1.45}
+.nudge .lnk{padding:0;color:var(--text);text-decoration:underline}
+.forgot .item{border-top:1px solid var(--line)}
+.forgot .item:nth-child(2){border-top:0}
+.qchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding:0 2px}
+.qc{appearance:none;border:1px solid var(--line);background:var(--card);color:var(--mute);border-radius:999px;padding:6px 11px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.qc.on{background:var(--text);border-color:var(--text);color:var(--bg)}
+.tbar{display:flex;gap:4px;background:var(--card2);padding:4px;border-radius:15px}
+.tbar button{flex:1;appearance:none;border:0;background:none;color:var(--mute);font:inherit;font-weight:700;font-size:14px;padding:9px 4px;border-radius:11px;cursor:pointer}
+.tbar button.on{background:var(--card);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.07)}
+.tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--card2);color:var(--mute);white-space:nowrap}
+.tag.hi{background:color-mix(in srgb,#e8774a 18%,var(--card2));color:#d0602f}
+.tag.soon{background:color-mix(in srgb,var(--y) 20%,var(--card2));color:#b7791f}
+.tag.late{background:color-mix(in srgb,var(--r) 18%,var(--card2));color:var(--r)}
+.play{appearance:none;border:0;width:36px;height:36px;border-radius:50%;background:var(--card2);color:var(--text);cursor:pointer;flex:none;font-size:12px;padding:0 0 0 2px}
+.mx{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mx .q{background:var(--card);border-radius:20px;padding:13px;min-height:130px}
+.mx .q h4{margin:0;font-size:14px}
+.mx .q .s{font-size:11px;color:var(--mute);margin:2px 0 6px}
+.mx .mi{font-size:14px;padding:7px 0;border-top:1px solid var(--line);cursor:pointer;word-wrap:break-word}
+.mx .mi small{display:block;font-size:11px;color:var(--mute)}
+.slot{display:flex;gap:12px;padding:11px 0;border-top:1px solid var(--line);align-items:center}
+.slot .tm{width:58px;flex:none;font-variant-numeric:tabular-nums;font-weight:700;font-size:15px}
+.slot .tm small{display:block;font-weight:500;font-size:12px;color:var(--mute)}
+.slot.br{padding:4px 0;font-size:12px;color:var(--mute);border-top:0}
+.slot.br .tm{font-size:12px;font-weight:500;color:var(--mute)}
 </style>
 </head>
 <body>
@@ -650,45 +686,261 @@ function workTab(){
   return '<div class="wrap">'+h+'</div>';
 }
 
-/* ====== 📝 Дела: личный список + место для мыслей ====== */
+/* ====== 📝 Дела: умный планировщик (важность, дедлайны, фокус, план дня) ====== */
+const IMP=[[3,'🔥 Важно'],[2,'Обычное'],[1,'Можно потом']];
+const EST=[[15,'15 мин'],[30,'30 мин'],[60,'1 ч'],[90,'1,5 ч'],[120,'2 ч'],[180,'3 ч'],[240,'4 ч']];
+const REM=[[15,'за 15 мин'],[60,'за 1 ч'],[180,'за 3 ч'],[1440,'за день'],[-1,'не нужно']];
+const tdCfg=()=>Object.assign({focus:45,from:'09:00',to:'22:00'},LS.get('tdCfg',{}));
 const todos=()=>all('todo').filter(t=>t.owner===me);
 const thoughtId=k=>'thought-'+me+'-'+k;
 const thoughtOf=k=>((get(thoughtId(k))||{}).data||{}).text||'';
+const durS=m=>{m=Math.max(0,Math.round(m));return m<60?m+' мин':Math.floor(m/60)+' ч'+(m%60?' '+m%60+' мин':'')};
+const hm=d=>pad(d.getHours())+':'+pad(d.getMinutes());
+const dueAt=d=>d&&d.due?+new Date(d.due.length===10?d.due+'T23:59':d.due):0;
+const leftOf=d=>Math.max(15,(d.est||30)-(d.spent||0));
+const clock=ms=>{const neg=ms<0,s=Math.floor(Math.abs(ms)/1000);return(neg?'+':'')+pad(Math.floor(s/60))+':'+pad(s%60)};
+let tdQ={imp:2,due:''},tdSkip=0;
+
+// подпись дедлайна: «сегодня 18:00 · через 2 ч», «просрочено на 3 ч»
+function dueLbl(due,now){
+  const at=dueAt({due}),h=(at-now)/36e5,k=due.slice(0,10),t=todayKey(),tm=due.length>10?' '+due.slice(11,16):'';
+  if(h<0){const a=-h;return{t:'просрочено на '+(a<1?Math.max(1,Math.round(a*60))+' мин':a<48?Math.round(a)+' ч':Math.round(a/24)+' дн.'),c:'late'}}
+  const dd=k===t?'сегодня':k===addDays(t,1)?'завтра':diffDays(t,k)<7?WD[parse(k).getDay()]:dLabel(k);
+  return{t:dd+tm+(h<6?' · через '+durS(h*60):''),c:h<3?'late':h<24?'soon':''};
+}
+// приоритет: важность + близость дедлайна (с учётом, сколько времени нужно) + «забытость»
+function rate(x,now){
+  const d=x.data,imp=d.imp||2,r=[];let s=imp*12;
+  const du=dueAt(d);
+  if(du){const h=(du-now)/36e5,slack=h-leftOf(d)/60,l=dueLbl(d.due,now);
+    if(h<0){s+=70+Math.min(30,-h);r.push(l.t)}
+    else if(slack<1){s+=55;r.push('пора начинать — срок '+l.t)}
+    else if(slack<4){s+=40;r.push('срок '+l.t)}
+    else if(h<24){s+=28;r.push('срок '+l.t)}
+    else if(h<72)s+=14;else if(h<168)s+=6;}
+  if(imp===3)r.push('важное');
+  const idle=(now-+new Date(d.touched||d.at||now))/864e5;
+  if(idle>=2){s+=Math.min(20,idle*imp*1.5);if(idle>=3)r.push(Math.floor(idle)+' дн. без движения')}
+  if(d.spent&&d.est&&d.spent<d.est){s+=4;r.push('уже начато')}
+  return{x,s,r};
+}
+const ranked=now=>todos().filter(x=>!x.data.done).map(x=>rate(x,now)).sort((a,b)=>b.s-a.s);
+
+/* ---- фокус-таймер ---- */
+const focusRec=()=>{const f=(get('focus-'+me)||{}).data;const t=f&&f.id&&get(f.id);return t&&!t.data.done?f:null};
+function askNotif(){try{if('Notification' in window&&Notification.permission==='default')Notification.requestPermission().then(()=>render())}catch(e){}}
+function logFocus(f,extra){
+  const t=get(f.id);if(!t)return 0;const m=Math.max(0,Math.round((Date.now()-f.start)/6e4)),k=todayKey();
+  const d=Object.assign({},t.data);d.spent=(d.spent||0)+m;d.days=Object.assign({},d.days||{});if(m)d.days[k]=(d.days[k]||0)+m;d.touched=new Date().toISOString();
+  Object.assign(d,extra||{});put(t.id,'todo',t.owner,d);return m;
+}
+function startFocus(id,mins){
+  const cur=focusRec();if(cur)logFocus(cur);
+  const t=get(id);if(!t)return;askNotif();tdSkip=0;
+  put(id,'todo',t.owner,Object.assign({},t.data,{touched:new Date().toISOString()}));
+  put('focus-'+me,'focus',me,{id,start:Date.now(),dur:mins||Math.min(tdCfg().focus,leftOf(t.data))});
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function stopFocus(done){
+  const f=focusRec();
+  if(!f){if(get('focus-'+me))del('focus-'+me);return}
+  const m=logFocus(f,done?{done:true,doneAt:new Date().toISOString(),doneDay:todayKey()}:null);
+  del('focus-'+me);toast(done?'Готово! В фокусе '+durS(m):'Записано: '+durS(m));
+  if(done&&navigator.vibrate)navigator.vibrate(12);
+}
+// окно «время вышло — что дальше?»
+function switchSheet(){
+  const f=focusRec();if(!f)return;const t=get(f.id),now=Date.now(),nx=ranked(now).filter(r=>r.x.id!==f.id)[0];
+  sheet('<h3>⏰ Время на «'+esc(t.data.title)+'» вышло</h3><div class="sub" style="margin-bottom:14px">В фокусе '+durS((now-f.start)/6e4)+'. Что дальше?</div>'+
+    '<button class="btn" id="sd">✓ Готово — дело сделано</button><div style="height:8px"></div>'+
+    (nx?'<button class="btn sec" id="sn" style="height:auto;min-height:50px;padding:10px 14px;text-align:left">↪ Переключиться: «'+esc(nx.x.data.title)+'»<div class="sub" style="font-weight:500">'+esc(nx.r.join(' · ')||'следующее по приоритету')+'</div></button><div style="height:8px"></div>':'')+
+    '<div class="mrow"><button class="btn sec" id="s15">+15 мин</button><button class="btn sec" id="sb">☕ Перерыв</button></div>',
+  s=>{q(s,'sd').onclick=()=>{stopFocus(true);close_()};
+    if(nx)q(s,'sn').onclick=()=>{close_();startFocus(nx.x.id)};
+    q(s,'s15').onclick=()=>{const f2=focusRec();if(f2)put('focus-'+me,'focus',me,Object.assign({},f2,{dur:Math.ceil((Date.now()-f2.start)/6e4)+15}));close_()};
+    q(s,'sb').onclick=()=>{stopFocus(false);close_();toast('Перерыв 5–10 минут, потом вернись к плану')}});
+}
+// выбрать другое дело
+function pickSheet(){
+  const now=Date.now(),f=focusRec(),rk=ranked(now).filter(r=>!f||r.x.id!==f.id);
+  sheet('<h3>На что переключиться?</h3><div class="sub" style="margin-bottom:6px">По приоритету — сверху то, что важнее сейчас.</div>'+(rk.length?rk.slice(0,12).map(r=>'<div class="item"><div class="nm" data-pid="'+r.x.id+'"><div class="t">'+esc(r.x.data.title)+'</div><div class="s">'+esc(r.r.join(' · ')||'без срока')+'</div></div><button class="play" data-pid="'+r.x.id+'">▶</button></div>').join(''):'<div class="empty">Других дел нет.</div>'),
+  s=>s.querySelectorAll('[data-pid]').forEach(n=>n.onclick=()=>{close_();startFocus(n.dataset.pid)}));
+}
+
+/* ---- уведомления и напоминания ---- */
+async function notify(t,b){
+  toast(t);if(navigator.vibrate)navigator.vibrate([80,60,80]);
+  try{if(!('Notification' in window)||Notification.permission!=='granted')return;
+    const r=navigator.serviceWorker&&await navigator.serviceWorker.getRegistration();
+    if(r)r.showNotification(t,{body:b,icon:'icon-180.png',tag:t});else new Notification(t,{body:b,icon:'icon-180.png'})}catch(e){}
+}
+function checkRem(){
+  const now=Date.now(),fired=LS.get('tdFired',{});let ch=false;
+  todos().forEach(x=>{const d=x.data,du=dueAt(d);if(d.done||!du)return;
+    const rm=d.rem==null?60:d.rem;
+    [[rm,'r'],[0,'d']].forEach(([m,tg])=>{if(m<0||(tg==='r'&&m===0))return;const at=du-m*6e4,k=x.id+'|'+d.due+'|'+tg;
+      if(now>=at&&now-at<6*36e5&&!fired[k]){fired[k]=now;ch=true;
+        notify(tg==='d'?'⏰ Дедлайн: '+d.title:'🔔 Скоро срок: '+d.title,tg==='d'?'Срок наступил. Открой «Дела».':'Срок '+dueLbl(d.due,now).t+'. Нужно ~'+durS(leftOf(d))+'.')}})});
+  if(ch){for(const k in fired)if(now-fired[k]>7*864e5)delete fired[k];LS.set('tdFired',fired)}
+}
+let tickN=0;
+setInterval(()=>{
+  if(!session||!me)return;tickN++;const now=Date.now(),f=focusRec();
+  if(f){const left=f.start+f.dur*6e4-now,e=$('#fcT'),b=$('#fcB');
+    if(e){e.textContent=clock(left);e.classList.toggle('ov',left<0)}if(b)b.style.width=Math.min(100,(now-f.start)/(f.dur*6e4)*100)+'%';
+    const fk='fend-'+f.start+'-'+f.dur;
+    if(left<=0&&LS.get('tdEnd','')!==fk){LS.set('tdEnd',fk);notify('⏰ Время вышло',(get(f.id)||{data:{}}).data.title+' — '+durS(f.dur)+'. Готово или переключаемся?');if(document.visibilityState==='visible'&&!$('#modal').classList.contains('show'))switchSheet()}}
+  if(tickN%30===1)checkRem();
+  if(tickN%60===0&&tab==='todo'&&!$('#modal').classList.contains('show')){const ae=document.activeElement;if(!(ae&&(ae.id==='tIn'||ae.dataset.live)))render()}
+},1000);
+
+/* ---- блоки экрана ---- */
+function tagsOf(d,now){
+  if(d.done)return '';let t='';
+  if(d.imp===3)t+='<span class="tag hi">🔥 важно</span>';
+  if(d.due){const l=dueLbl(d.due,now);t+='<span class="tag '+l.c+'">⏰ '+l.t+'</span>'}
+  if(d.est)t+='<span class="tag">~'+durS(d.est)+'</span>';
+  if(d.spent)t+='<span class="tag">⏱ '+durS(d.spent)+'</span>';
+  if(d.imp===1)t+='<span class="tag">можно потом</span>';
+  return t?'<div class="tags">'+t+'</div>':'';
+}
+const ring=(x,now)=>'<div class="titem'+(x.data.done?' dn':'')+'"><button class="ring2'+(x.data.done?' on':'')+'" data-act="tgo" data-id="'+x.id+'" aria-label="Выполнено"></button><div class="tx" data-act="tedit" data-id="'+x.id+'"><div class="h">'+esc(x.data.title)+'</div>'+tagsOf(x.data,now||Date.now())+(x.data.note?'<div class="n">'+esc(x.data.note)+'</div>':'')+'</div>'+(x.data.done?'':'<button class="play" data-act="fgo" data-id="'+x.id+'" aria-label="Начать">▶</button>')+'</div>';
+
+function nowCard(rk,now){
+  const f=focusRec();
+  if(f){const t=get(f.id),d=t.data,left=f.start+f.dur*6e4-now;
+    let h='<div class="card now on"><div class="sub">Сейчас в фокусе · '+durS(f.dur)+'</div><div class="nt">'+esc(d.title)+'</div><div class="ftime'+(left<0?' ov':'')+'" id="fcT">'+clock(left)+'</div><div class="fbar"><i id="fcB" style="width:'+Math.min(100,(now-f.start)/(f.dur*6e4)*100)+'%"></i></div>';
+    // подсказка «брось и переключись»
+    const curS=(rk.find(r=>r.x.id===f.id)||{s:0}).s;
+    const nx=rk.find(r=>r.x.id!==f.id&&r.s>curS&&dueAt(r.x.data)&&dueAt(r.x.data)-now<(leftOf(r.x.data)+60)*6e4);
+    const todayM=((d.days||{})[todayKey()]||0)+(now-f.start)/6e4;
+    const imp=rk.find(r=>r.x.id!==f.id&&r.x.data.imp===3&&!(r.x.data.days||{})[todayKey()]);
+    if(nx)h+='<div class="nudge">⚠️ Пора переключаться: «'+esc(nx.x.data.title)+'» — '+esc(dueLbl(nx.x.data.due,now).t)+', а нужно ~'+durS(leftOf(nx.x.data))+'. <button class="lnk" data-act="fsw" data-id="'+nx.x.id+'">Перейти →</button></div>';
+    else if(todayM>=120&&imp)h+='<div class="nudge">Сегодня на это ушло уже '+durS(todayM)+'. Важное «'+esc(imp.x.data.title)+'» ещё не тронуто. <button class="lnk" data-act="fsw" data-id="'+imp.x.id+'">Переключиться →</button></div>';
+    return h+'<div class="mrow" style="margin-top:14px"><button class="btn" data-act="fdone">✓ Готово</button><button class="btn sec" data-act="fstop">⏸ Стоп</button></div><div style="height:8px"></div><button class="btn sec" data-act="fnext">↪ Переключиться на другое</button></div>';
+  }
+  if(!rk.length)return '';
+  const r=rk[tdSkip%rk.length],d=r.x.data,m=Math.min(tdCfg().focus,leftOf(d));
+  return '<div class="card now"><div class="sub">'+(tdSkip%rk.length?'Можно заняться':'Сейчас лучше всего заняться')+'</div><div class="nt" data-act="tedit" data-id="'+r.x.id+'">'+esc(d.title)+'</div>'+(r.r.length?'<div class="why">'+esc(r.r.join(' · '))+'</div>':'')+
+    '<div class="mrow" style="margin-top:14px"><button class="btn" data-act="fgo" data-id="'+r.x.id+'" data-m="'+m+'">▶ Начать · '+durS(m)+'</button>'+(rk.length>1?'<button class="btn sec" data-act="fskip" style="flex:0 0 auto;width:auto;padding:0 18px">Другое</button>':'')+'</div></div>';
+}
+function forgotCard(rk,now){
+  const f=focusRec(),top=f?f.id:(rk[tdSkip%(rk.length||1)]||{x:{}}).x.id;
+  const fg=rk.filter(r=>r.x.id!==top&&(r.x.data.imp||2)>=2&&(now-+new Date(r.x.data.touched||r.x.data.at||now))/864e5>=3).slice(0,2);
+  if(!fg.length)return '';
+  return '<div class="card forgot"><div class="sub" style="margin-bottom:4px">🕸 Не дай забыться</div>'+fg.map(r=>{const days=Math.floor((now-+new Date(r.x.data.touched||r.x.data.at))/864e5);return '<div class="item"><div class="nm" data-act="tedit" data-id="'+r.x.id+'"><div class="t">'+esc(r.x.data.title)+'</div><div class="s">'+days+' дн. без движения — хотя бы 15 минут сдвинут дело</div></div><button class="btn sec sm" data-act="fgo" data-id="'+r.x.id+'" data-m="15">15 мин</button></div>'}).join('')+'</div>';
+}
+function matrixHtml(rk,now){
+  const urg=d=>{const du=dueAt(d);return du&&du-now<48*36e5};
+  const Q=[['🔥 Сделать сейчас','важно и срочно',d=>d.imp===3&&urg(d)],['📅 Запланировать','важно, не срочно',d=>d.imp===3&&!urg(d)],['⚡ Быстро разобраться','срочно, но не так важно',d=>d.imp!==3&&urg(d)],['🌙 Потом','не срочно и не важно',d=>d.imp!==3&&!urg(d)]];
+  return '<div class="mx">'+Q.map(([t,s,fn])=>{const l=rk.filter(r=>fn(r.x.data));return '<div class="q"><h4>'+t+'</h4><div class="s">'+s+'</div>'+(l.length?l.map(r=>'<div class="mi" data-act="tedit" data-id="'+r.x.id+'">'+esc(r.x.data.title)+(r.x.data.due?'<small>'+esc(dueLbl(r.x.data.due,now).t)+'</small>':'')+'</div>').join(''):'<div class="s">пусто</div>')+'</div>'}).join('')+'</div>'+
+    '<div class="sub" style="padding:0 6px">Срочно — срок в ближайшие 2 дня. Важность задаётся в карточке дела.</div>';
+}
+function planHtml(rk,now){
+  const c=tdCfg(),[eh,em]=c.to.split(':').map(Number),[sh,sm]=c.from.split(':').map(Number);
+  let base=new Date(now),end=new Date(now);end.setHours(eh,em,0,0);let lbl='Сегодня';
+  if(+base>=+end){base=new Date(now+864e5);base.setHours(sh,sm,0,0);end=new Date(base);end.setHours(eh,em,0,0);lbl='Завтра'}
+  else{const st=new Date(now);st.setHours(sh,sm,0,0);if(base<st)base=st}
+  const f=focusRec();let cur=Math.ceil(+base/3e5)*3e5;if(f&&lbl==='Сегодня')cur=now;
+  const order=f?[rk.find(r=>r.x.id===f.id),...rk.filter(r=>r.x.id!==f.id)].filter(Boolean):rk;
+  let h='<div class="card"><div class="shead"><h3>'+lbl+' · до '+c.to+'</h3><span class="sub">свободно '+durS((+end-cur)/6e4)+'</span></div>';
+  if(!order.length)h+='<div class="empty">Нет дел — план пуст.</div>';
+  const over=[];let n=0;
+  order.forEach(r=>{const d=r.x.data;let dur=Math.min(leftOf(d),180);
+    if(f&&r.x.id===f.id)dur=Math.max(5,Math.round((f.start+f.dur*6e4-cur)/6e4));
+    if(cur+dur*6e4>+end){over.push(r);return}
+    const a=new Date(cur),b=new Date(cur+dur*6e4),du=dueAt(d),late=du&&+b>du;
+    if(n++)h+='<div class="slot br"><div class="tm">'+hm(new Date(cur-10*6e4))+'</div><div>☕ перерыв 10 мин</div></div>';
+    h+='<div class="slot"><div class="tm">'+hm(a)+'<small>до '+hm(b)+'</small></div><div class="tx" style="flex:1;cursor:pointer" data-act="tedit" data-id="'+r.x.id+'"><div style="font-weight:600">'+(f&&f.id===r.x.id?'▶ ':'')+esc(d.title)+'</div><div class="sub">'+durS(dur)+(d.imp===3?' · важно':'')+(late?' · <b style="color:var(--r)">'+(du<now?'⚠ уже просрочено':'⚠ к сроку не успеть — начни раньше или сократи')+'</b>':'')+'</div></div>'+(f&&f.id===r.x.id?'':'<button class="play" data-act="fgo" data-id="'+r.x.id+'">▶</button>')+'</div>';
+    cur=+b+10*6e4});
+  if(over.length)h+='<div class="nudge" style="margin-top:12px">Не влезает '+(lbl==='Сегодня'?'сегодня':'завтра')+': '+over.map(r=>'«'+esc(r.x.data.title)+'»').join(', ')+'. Перенеси срок, сократи или отложи то, что «можно потом».</div>';
+  return h+'<div class="sub" style="margin-top:10px">Порядок — по приоритету. Время дела — из оценки минус уже потраченное. Рабочие часы меняются в ⏱.</div></div>';
+}
+function distCard(now){
+  const k=todayKey(),f=focusRec();
+  const l=todos().map(x=>[x,((x.data.days||{})[k]||0)+(f&&f.id===x.id?Math.max(0,(now-f.start)/6e4):0)]).filter(v=>v[1]>=1).sort((a,b)=>b[1]-a[1]);
+  if(!l.length)return '';const tot=l.reduce((s,v)=>s+v[1],0);
+  return '<div class="card"><div class="shead"><h3 style="font-weight:600">⏱ Время сегодня</h3><span class="sub">'+durS(tot)+' в фокусе</span></div>'+l.slice(0,6).map(([x,m])=>'<div style="padding:6px 0"><div style="display:flex;justify-content:space-between;gap:8px;font-size:15px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.data.title)+'</span><span class="sub">'+durS(m)+'</span></div><div class="bar"><i style="width:'+(m/l[0][1]*100)+'%;background:var(--ok)"></i></div></div>').join('')+'</div>';
+}
 function todoTab(){
-  const t=todayKey(),d=parse(t),list=todos();
-  const act=list.filter(x=>!x.data.done).sort((a,b)=>(a.data.at||'').localeCompare(b.data.at||''));
+  const t=todayKey(),d=parse(t),list=todos(),now=Date.now(),rk=ranked(now),view=LS.get('tdView','list');
+  const act=rk.map(r=>r.x);
   const done=list.filter(x=>x.data.done).sort((a,b)=>(b.data.doneAt||'').localeCompare(a.data.doneAt||''));
   const doneToday=done.filter(x=>(x.data.doneAt||'').slice(0,10)===t||x.data.doneDay===t);
-  const ring=(x)=>'<div class="titem'+(x.data.done?' dn':'')+'"><button class="ring2'+(x.data.done?' on':'')+'" data-act="tgo" data-id="'+x.id+'" aria-label="Выполнено"></button><div class="tx" data-act="tedit" data-id="'+x.id+'"><div class="h">'+esc(x.data.title)+'</div>'+(x.data.note?'<div class="n">'+esc(x.data.note)+'</div>':'')+'</div></div>';
-  // шапка + кругляшки: каждое дело — кружок, горит, когда выполнено
-  let h='<div class="td-hd"><div class="ttl"><h1>Мои дела</h1><div class="sub">'+WD[d.getDay()]+', '+dLabel(t)+' · '+(act.length?'осталось '+act.length:'всё сделано')+(doneToday.length?' · сегодня выполнено '+doneToday.length:'')+'</div></div><button class="ibtn" data-act="set">⚙︎</button></div>';
+  const late=act.filter(x=>dueAt(x.data)&&dueAt(x.data)<now).length;
+  let h='<div class="td-hd"><div class="ttl"><h1>Мои дела</h1><div class="sub">'+WD[d.getDay()]+', '+dLabel(t)+' · '+(act.length?'осталось '+act.length:'всё сделано')+(late?' · <b style="color:var(--r)">просрочено '+late+'</b>':'')+(doneToday.length?' · сегодня выполнено '+doneToday.length:'')+'</div></div><button class="ibtn" data-act="tset" aria-label="Режим работы">⏱</button><button class="ibtn" data-act="set">⚙︎</button></div>';
   const dots=[...doneToday.slice().reverse(),...act];
   if(dots.length)h+='<div class="tdots">'+dots.map(x=>'<i class="'+(x.data.done?'on':'')+'" title="'+esc(x.data.title)+'"></i>').join('')+'</div>';
-  // добавить
-  h+='<div class="tadd"><input id="tIn" placeholder="Что нужно сделать?" enterkeyhint="done" autocomplete="off"><button data-act="tadd" aria-label="Добавить">+</button></div>';
-  // активные
-  h+='<div class="card">'+(act.length?act.map(ring).join(''):'<div class="empty" style="padding:6px 0">Пока пусто. Запиши первое дело выше — оно останется здесь, пока не отметишь кружок.</div>')+'</div>';
-  // выполненные
+  h+=nowCard(rk,now);
+  h+=forgotCard(rk,now);
+  // быстрое добавление + метки для следующего дела
+  h+='<div><div class="tadd"><input id="tIn" placeholder="Что нужно сделать?" enterkeyhint="done" autocomplete="off"><button data-act="tadd" aria-label="Добавить">+</button></div>'+
+    '<div class="qchips"><button class="qc'+(tdQ.imp===3?' on':'')+'" data-act="qimp">🔥 Важно</button>'+[['td','Сегодня'],['tm','Завтра'],['wk','Неделя']].map(([k,l])=>'<button class="qc'+(tdQ.due===k?' on':'')+'" data-act="qdue" data-k="'+k+'">'+l+'</button>').join('')+'<button class="qc" data-act="tnew">⋯ подробнее</button></div></div>';
+  h+='<div class="tbar">'+[['list','По приоритету'],['plan','План дня'],['mx','Матрица']].map(([k,l])=>'<button class="'+(view===k?'on':'')+'" data-act="tview" data-k="'+k+'">'+l+'</button>').join('')+'</div>';
+  if(view==='mx')h+=matrixHtml(rk,now);
+  else if(view==='plan')h+=planHtml(rk,now);
+  else h+='<div class="card">'+(act.length?act.map(x=>ring(x,now)).join(''):'<div class="empty" style="padding:6px 0">Пока пусто. Запиши дело выше — отметь 🔥, если важно, и срок. Приложение само подскажет, за что браться.</div>')+'</div>';
+  h+=distCard(now);
   if(done.length){const open=LS.get('tdShowDone',false);
-    h+='<div class="card"><div class="shead" style="margin:0"><h3 style="font-weight:600">Выполнено · '+done.length+'</h3><button class="lnk" data-act="tdtog">'+(open?'Скрыть':'Показать')+'</button></div>'+(open?'<div style="margin-top:10px">'+done.slice(0,40).map(ring).join('')+'</div>'+(done.length>1?'<div style="text-align:center;margin-top:6px"><button class="lnk" data-act="tclear" style="color:var(--mute);font-weight:600">Убрать выполненные старше недели</button></div>':''):'')+'</div>'}
-  // место для размышлений
+    h+='<div class="card"><div class="shead" style="margin:0"><h3 style="font-weight:600">Выполнено · '+done.length+'</h3><button class="lnk" data-act="tdtog">'+(open?'Скрыть':'Показать')+'</button></div>'+(open?'<div style="margin-top:10px">'+done.slice(0,40).map(x=>ring(x,now)).join('')+'</div>'+(done.length>1?'<div style="text-align:center;margin-top:6px"><button class="lnk" data-act="tclear" style="color:var(--mute);font-weight:600">Убрать выполненные старше недели</button></div>':''):'')+'</div>'}
   h+='<div class="card think"><div class="shead"><h3 style="font-weight:600">Мысли</h3><span class="sub" id="thSt">'+(thoughtOf(t)?'сохранено':'только для тебя')+'</span></div><textarea id="thTa" data-live="1" placeholder="Место, чтобы подумать. Что на уме, что важно сегодня, идеи, выводы…">'+esc(thoughtOf(t))+'</textarea></div>';
   const past=all('thought').filter(x=>x.owner===me&&x.data.d!==t&&(x.data.text||'').trim()).sort((a,b)=>b.data.d.localeCompare(a.data.d));
   if(past.length)h+='<div class="card"><div class="shead"><h3 style="font-weight:600">Прошлые записи</h3></div>'+past.slice(0,14).map(x=>'<div class="past" data-act="tpast" data-k="'+x.data.d+'"><div class="d">'+WD[parse(x.data.d).getDay()]+', '+dLabel(x.data.d)+'</div><div class="p">'+esc(x.data.text)+'</div></div>').join('')+'</div>';
   return '<div class="wrap calmwrap">'+h+'</div>';
 }
+const qDue=k=>k==='td'?todayKey():k==='tm'?addDays(todayKey(),1):k==='wk'?addDays(todayKey(),7):'';
 function addTodo(){
   const i=$('#tIn');if(!i)return;const title=i.value.trim();if(!title){i.focus();return}
-  i.value='';put('todo-'+uid(),'todo',me,{title,note:'',done:false,at:new Date().toISOString()});
+  i.value='';const now=new Date().toISOString();
+  put('todo-'+uid(),'todo',me,{title,note:'',done:false,at:now,touched:now,imp:tdQ.imp,due:qDue(tdQ.due),est:30,rem:60});
+  tdQ={imp:2,due:''};
 }
 function todoForm(t0){
-  const d0=t0.data;
-  sheet('<h3>Дело</h3><div class="fld"><label>Что сделать</label><textarea id="fT" style="min-height:56px">'+esc(d0.title)+'</textarea></div><div class="fld"><label>Мысли и детали</label><textarea id="fN" style="min-height:180px;line-height:1.6" placeholder="Шаги, заметки, почему это важно…">'+esc(d0.note||'')+'</textarea></div>'+
-    '<button class="btn" id="ok">Сохранить</button><div style="height:8px"></div><button class="btn sec" id="tg">'+(d0.done?'Вернуть в работу':'Отметить выполненным')+'</button><button class="danger" id="rm">Удалить</button>',
-  s=>{const save=extra=>{const title=q(s,'fT').value.trim();if(!title){q(s,'fT').focus();return false}put(t0.id,'todo',t0.owner,Object.assign({},d0,{title,note:q(s,'fN').value.trim()},extra||{}));return true};
+  const now=new Date().toISOString();
+  const d0=Object.assign({title:($('#tIn')||{}).value||'',note:'',done:false,at:now,touched:now,imp:tdQ.imp,due:qDue(tdQ.due),est:30,rem:60},t0?t0.data:{});
+  let imp=d0.imp||2,est=d0.est||30,rem=d0.rem==null?60:d0.rem;
+  const dd=d0.due?d0.due.slice(0,10):'',dt=d0.due&&d0.due.length>10?d0.due.slice(11,16):'';
+  sheet('<h3>'+(t0?'Дело':'Новое дело')+'</h3><div class="fld"><label>Что сделать</label><textarea id="fT" style="min-height:56px">'+esc(d0.title)+'</textarea></div>'+
+    '<div class="fld"><label>Важность</label><div class="chips" id="fI"></div></div>'+
+    '<div class="fld"><label>Дедлайн</label><div class="chips" id="fQ" style="margin-bottom:8px"></div><div class="mrow"><input id="fD" type="date" value="'+dd+'"><input id="fH" type="time" value="'+dt+'"></div></div>'+
+    '<div class="fld"><label>Сколько времени займёт</label><div class="chips" id="fE"></div></div>'+
+    '<div class="fld"><label>Напомнить до срока</label><div class="chips" id="fR"></div></div>'+
+    '<div class="fld"><label>Мысли и детали</label><textarea id="fN" style="min-height:120px;line-height:1.6" placeholder="Шаги, заметки, почему это важно…">'+esc(d0.note||'')+'</textarea></div>'+
+    (d0.spent?'<div class="sub" style="margin-bottom:12px">Уже потрачено: '+durS(d0.spent)+'</div>':'')+
+    '<button class="btn" id="ok">Сохранить</button><div style="height:8px"></div><div class="mrow"><button class="btn sec" id="go">▶ Начать</button><button class="btn sec" id="cal">📅 В Календарь</button></div>'+
+    (t0?'<div style="height:8px"></div><button class="btn sec" id="tg">'+(d0.done?'Вернуть в работу':'Отметить выполненным')+'</button><button class="danger" id="rm">Удалить</button>':''),
+  s=>{
+    chips(q(s,'fI'),IMP,imp,n=>imp=n,(n,l)=>l);
+    chips(q(s,'fE'),EST,est,n=>est=n,(n,l)=>l);
+    chips(q(s,'fR'),REM,rem,n=>rem=n,(n,l)=>l);
+    const setD=(k,tm)=>{q(s,'fD').value=k;q(s,'fH').value=tm||''};
+    const qd=q(s,'fQ');[['Сегодня',()=>setD(todayKey())],['Завтра',()=>setD(addDays(todayKey(),1))],['Через 3 дня',()=>setD(addDays(todayKey(),3))],['Неделя',()=>setD(addDays(todayKey(),7))],['Без срока',()=>setD('')]].forEach(([l,fn])=>{const b=document.createElement('button');b.className='chip';b.textContent=l;b.onclick=fn;qd.appendChild(b)});
+    if(!t0)setTimeout(()=>q(s,'fT').focus(),60);
+    const save=extra=>{const title=q(s,'fT').value.trim();if(!title){q(s,'fT').focus();return null}
+      const D=q(s,'fD').value,H=q(s,'fH').value,id=t0?t0.id:'todo-'+uid();
+      const d=Object.assign({},d0,{title,note:q(s,'fN').value.trim(),imp,est,rem,due:D?(H?D+'T'+H:D):''},extra||{});
+      put(id,'todo',t0?t0.owner:me,d);if(!t0){const i=$('#tIn');if(i)i.value='';tdQ={imp:2,due:''}}return{id,d}};
     q(s,'ok').onclick=()=>{if(save())close_()};
-    q(s,'tg').onclick=()=>{if(save(d0.done?{done:false,doneAt:''}:{done:true,doneAt:new Date().toISOString(),doneDay:todayKey()}))close_()};
-    q(s,'rm').onclick=()=>{if(confirm('Удалить дело?')){del(t0.id);close_()}}});
+    q(s,'go').onclick=()=>{const r=save();if(r){close_();startFocus(r.id)}};
+    q(s,'cal').onclick=()=>{if(!q(s,'fD').value){toast('Сначала укажи дедлайн');return}const r=save();if(!r)return;close_();
+      const du=dueAt(r.d),st=new Date(du-leftOf(r.d)*6e4);
+      icsFor('📝 '+r.d.title,key(st),hm(st),leftOf(r.d),'Пора начинать, чтобы успеть. Срок: '+dLabel(r.d.due.slice(0,10))+(r.d.due.length>10?' '+r.d.due.slice(11,16):'')+(r.d.note?'\n'+r.d.note:''))};
+    if(t0){q(s,'tg').onclick=()=>{const f=focusRec();if(f&&f.id===t0.id&&!d0.done){close_();stopFocus(true);return}if(save(d0.done?{done:false,doneAt:''}:{done:true,doneAt:new Date().toISOString(),doneDay:todayKey()}))close_()};
+      q(s,'rm').onclick=()=>{if(confirm('Удалить дело?')){const f=focusRec();if(f&&f.id===t0.id)del('focus-'+me);del(t0.id);close_()}}}
+  });
+}
+function tdSettings(){
+  const c=tdCfg(),perm='Notification' in window?Notification.permission:'none';let fc=c.focus;
+  sheet('<h3>⏱ Режим работы</h3>'+
+    '<div class="fld"><label>Длина фокус-сессии</label><div class="chips" id="fF"></div></div>'+
+    '<div class="mrow">'+fld('fA','Начало дня',c.from,'type="time"')+fld('fB','Конец дня',c.to,'type="time"')+'</div>'+
+    '<div class="sub" style="margin:-2px 0 14px">По этим часам строится «План дня».</div>'+
+    '<div class="fld"><label>Уведомления</label><div class="sub" style="margin-bottom:8px">'+(perm==='granted'?'✅ Включены на этом устройстве.':perm==='denied'?'⛔ Запрещены в настройках браузера/телефона.':perm==='none'?'Этот браузер не поддерживает уведомления.':'Ещё не включены.')+'</div>'+(perm==='default'?'<button class="btn sec" id="nt">🔔 Включить уведомления</button>':'')+'</div>'+
+    '<div class="sub" style="margin-bottom:14px">Напоминания о дедлайнах и конце фокус-сессии приходят, пока приложение открыто или свёрнуто недавно. На iPhone сайт должен быть добавлен на экран «Домой». Чтобы напоминание точно пришло, даже если приложение закрыто, нажми в деле «📅 В Календарь» — событие поставится на время, когда пора начинать.</div>'+
+    '<button class="btn" id="ok">Сохранить</button>',
+  s=>{chips(q(s,'fF'),[[25,'25 мин'],[45,'45 мин'],[60,'60 мин'],[90,'90 мин']],fc,n=>fc=n,(n,l)=>l);
+    const nb=q(s,'nt');if(nb)nb.onclick=()=>{Notification.requestPermission().then(()=>{close_();tdSettings()})};
+    q(s,'ok').onclick=()=>{LS.set('tdCfg',{focus:fc,from:q(s,'fA').value||'09:00',to:q(s,'fB').value||'22:00'});close_();render()}});
 }
 function pastThought(k){
   sheet('<h3>'+WD[parse(k).getDay()]+', '+dLabel(k)+'</h3><textarea class="bigta" id="fT">'+esc(thoughtOf(k))+'</textarea><div style="height:10px"></div><button class="btn" id="ok">Сохранить</button><button class="danger" id="rm">Удалить запись</button>',
@@ -725,8 +977,18 @@ $('#app').addEventListener('click',e=>{
   if(a!=='perlist')e.preventDefault();
   switch(a){
     case 'tadd':addTodo();break;
-    case 'tgo':{const t=get(id);if(!t)break;const on=!t.data.done;if(on&&navigator.vibrate)navigator.vibrate(12);put(id,'todo',t.owner,Object.assign({},t.data,on?{done:true,doneAt:new Date().toISOString(),doneDay:todayKey()}:{done:false,doneAt:''}));break}
+    case 'tgo':{const t=get(id);if(!t)break;const on=!t.data.done;{const f=focusRec();if(on&&f&&f.id===id){stopFocus(true);break}}if(on&&navigator.vibrate)navigator.vibrate(12);put(id,'todo',t.owner,Object.assign({},t.data,on?{done:true,doneAt:new Date().toISOString(),doneDay:todayKey()}:{done:false,doneAt:''}));break}
     case 'tedit':todoForm(get(id));break;
+    case 'tnew':todoForm(null);break;
+    case 'tset':tdSettings();break;
+    case 'tview':LS.set('tdView',el.dataset.k);render();break;
+    case 'qimp':tdQ.imp=tdQ.imp===3?2:3;render();break;
+    case 'qdue':tdQ.due=tdQ.due===el.dataset.k?'':el.dataset.k;render();break;
+    case 'fgo':case 'fsw':startFocus(id,+el.dataset.m||0);break;
+    case 'fdone':stopFocus(true);break;
+    case 'fstop':stopFocus(false);break;
+    case 'fnext':pickSheet();break;
+    case 'fskip':tdSkip++;render();break;
     case 'tdtog':LS.set('tdShowDone',!LS.get('tdShowDone',false));render();break;
     case 'tclear':{const lim=new Date(Date.now()-7*864e5).toISOString();const old=todos().filter(x=>x.data.done&&(x.data.doneAt||'')<lim);if(!old.length){toast('Старых выполненных нет');break}if(confirm('Удалить выполненные старше недели ('+old.length+')?'))old.forEach(x=>del(x.id));break}
     case 'tpast':pastThought(el.dataset.k);break;
@@ -806,6 +1068,7 @@ async function boot(){
   const {data}=await sb.auth.getSession();
   if(!data.session)authScreen();
 }
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 boot();
 </script>
 </body>
