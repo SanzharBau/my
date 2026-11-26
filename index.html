@@ -202,6 +202,7 @@ html.calm .btn.sec{background:var(--card2);color:var(--text)}
 .past .d{font-size:12px;color:var(--mute);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .past .p{margin-top:4px;font-size:15px;color:var(--text);opacity:.85;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:pre-wrap}
 /* ====== 💰 Деньги ====== */
+[data-act=mshare],[data-act=mreset]{white-space:normal!important}
 .mhd{display:flex;align-items:center;gap:10px;padding:4px 2px 0}
 .mhd h1{flex:1;margin:0;font-size:26px;letter-spacing:-.02em}
 .ibtn .bdg{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;border-radius:9px;background:var(--r);color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center;padding:0 4px}
@@ -765,6 +766,8 @@ const PERL={m:'Этот месяц',d:'Сегодня',a:'Всё время'};
 const accts=()=>all('acct').filter(a=>a.owner===me||a.owner==='both').sort((x,y)=>(x.data.ord||0)-(y.data.ord||0)||x.id.localeCompare(y.id));
 const accOf=id=>{const a=id&&get(id);return a&&a.kind==='acct'?a:null};
 const accName=id=>{const a=accOf(id);return a?a.data.name:''};
+const ATYPE=[['card','💳 Карта'],['dep','🏦 Депозит'],['cash','💵 Наличные']];
+const accType=a=>a&&a.data?(a.data.type||(/нал/i.test(a.data.name||'')?'cash':'card')):'card';
 const accCol=a=>a?(a.data.col||ACOLS[0]):'var(--acc)';
 function accBal(id){const a=accOf(id);let b=a?(+a.data.start||0):0;all('tx').forEach(t=>{const d=t.data;if(d.acc===id)b+=(d.t==='exp'||d.t==='tr')?-d.a:d.a;if(d.t==='tr'&&d.to===id)b+=d.a});return b}
 const totalBal=A=>A.length?A.reduce((s,a)=>s+accBal(a.id),0):balanceOf(me);
@@ -1082,7 +1085,7 @@ function txForm(t0,opts){
     typ:t0?d0.t:ib?ib.data.t:opts.type==='inc'?'inc':opts.type==='tr'?'tr':'exp',
     ex:String(t0?d0.a:ib?ib.data.a:pl?pl.data.a:'').replace('.',','),
     acc:t0?(d0.acc||''):(opts.acc||(pl&&pl.data.acc)||(rem&&rem.acc)||(opts.shared&&famAcc)||lastAcc||''),
-    to:t0?(d0.to||''):'',bud:t0?(d0.bud||''):(rem&&rem.bud)||'',
+    to:t0?(d0.to||''):(opts.to||''),bud:t0?(d0.bud||''):(rem&&rem.bud)||'',
     cat:t0?d0.cat:rem?rem.cat:pl?pl.data.cat:null,
     note:t0?(d0.note||''):ib?ib.data.m:pl?pl.data.title:'',
     d:t0?d0.d:ib?ib.data.d:(tab==='money'||tab==='todo'?todayKey():day),
@@ -1152,17 +1155,22 @@ function txForm(t0,opts){
 }
 
 /* --- счета и бюджеты --- */
-function accForm(a0,after){
-  const d0=a0?a0.data:{name:'',emo:'💳',col:ACOLS[accts().length%ACOLS.length],start:0};
-  let emo=d0.emo||'💳',col=d0.col||ACOLS[0],own=a0?a0.owner:me;const cur=a0?accBal(a0.id):0;
+function accForm(a0,after,type0){
+  const DEF={card:['💳',''],dep:['🐷','Депозит'],cash:['💵','Наличные']};
+  const d0=a0?a0.data:{name:DEF[type0||'card'][1],emo:DEF[type0||'card'][0],col:type0==='dep'?'#0f766e':type0==='cash'?'#3a3f58':ACOLS[accts().length%ACOLS.length],start:0,type:type0||'card'};
+  let emo=d0.emo||'💳',col=d0.col||ACOLS[0],own=a0?a0.owner:me,typ=a0?accType(a0):(type0||'card'),bank=d0.bank||'';const cur=a0?accBal(a0.id):0;
   const B=a0?budsOf(a0.id):[];
-  sheet('<h3>'+(a0?'Счёт':'Новый счёт')+'</h3>'+fld('fN','Название',d0.name,'placeholder="Kaspi Gold, Наличные, Депозит…"')+fld('fB','Сейчас на счёте, ₸',a0?Math.round(cur):'',NUM+' class="big" placeholder="0"')+
+  sheet('<h3>'+(a0?'Счёт':typ==='dep'?'Новый депозит':typ==='cash'?'Наличные':'Новый счёт')+'</h3><div class="fld"><label>Тип</label><div class="chips" id="fY"></div></div>'+fld('fN','Название',d0.name,'placeholder="Kaspi Gold, Наличные, Депозит…"')+fld('fB','Сейчас на счёте, ₸',a0?Math.round(cur):'',NUM+' class="big" placeholder="0"')+
+    '<div id="depF"><div class="fld"><label>Банк</label><div class="chips" id="fBk"></div></div>'+fld('fR','Ставка, % годовых (необязательно)',d0.rate||'',NUM+' placeholder="например 14"')+'</div>'+
     '<div class="fld"><label>Значок</label><div class="chips" id="fE"></div></div><div class="fld"><label>Цвет</label><div class="chips" id="fK"></div></div>'+
     '<div class="fld"><label>Чей счёт</label><div class="chips" id="fO"></div><div class="sub" style="margin-top:5px">Общий семейный видят оба, и каждый записывает траты со своего телефона.</div></div>'+
     (a0?'<div class="fld"><label>Бюджеты внутри счёта</label>'+(B.map(b=>'<div class="item"><div class="ico">'+esc(b.data.emo)+'</div><div class="nm" data-bid="'+b.id+'"><div class="t">'+esc(b.data.name)+'</div><div class="s">лимит '+fmt(b.data.limit)+' в месяц</div></div></div>').join('')||'<div class="empty">Пока нет. Например: «Личные», «Семья», «Отпуск».</div>')+'<button class="btn sec sm" id="nb" style="margin-top:6px">+ Бюджет</button></div>':'')+
     '<button class="btn" id="ok">Сохранить</button>'+(a0?'<button class="danger" id="rm">Удалить счёт</button>':''),
   s=>{
     if(!a0)setTimeout(()=>q(s,'fN').focus(),60);
+    const showDep=()=>{q(s,'depF').style.display=typ==='dep'?'':'none'};showDep();
+    chips(q(s,'fY'),ATYPE,typ,n=>{typ=n;showDep()},(n,l)=>l);
+    chips(q(s,'fBk'),[['Kaspi','Kaspi'],['Freedom','Freedom'],['','Другой']],bank,n=>{bank=n;const f=q(s,'fN');if(!f.value.trim()||/^Депозит/.test(f.value))f.value='Депозит'+(n?' '+n:'')},(n,l)=>l);
     chips(q(s,'fE'),AEMO.map(e=>[e,e]),emo,n=>emo=n,n=>n);
     const fk=q(s,'fK'),dk=()=>{fk.innerHTML=ACOLS.map(c=>'<button class="chip" data-c="'+c+'" style="width:36px;height:36px;padding:0;background:'+c+';border:3px solid '+(c===col?'var(--text)':'transparent')+'"></button>').join('');fk.querySelectorAll('button').forEach(b=>b.onclick=()=>{col=b.dataset.c;dk()})};dk();
     chips(q(s,'fO'),[[me,'👤 Мой'],['both','👨‍👩‍👧 Общий семейный']],own,n=>own=n,(n,l)=>l);
@@ -1170,9 +1178,9 @@ function accForm(a0,after){
     if(a0)q(s,'nb').onclick=()=>budForm(null,a0.id);
     q(s,'ok').onclick=()=>{const name=q(s,'fN').value.trim();if(!name)return q(s,'fN').focus();const v=num(q(s,'fB').value),bal=isFinite(v)?v:0;
       const id=a0?a0.id:'acct-'+uid();
-      put(id,'acct',own,Object.assign({},d0,{name,emo,col,start:a0?(+d0.start||0)+(bal-cur):bal,ord:d0.ord||Date.now()}));
+      put(id,'acct',own,Object.assign({},d0,{name,emo,col,type:typ,bank:typ==='dep'?bank:'',rate:typ==='dep'?(num(q(s,'fR').value)||''):'',start:a0?(+d0.start||0)+(bal-cur):bal,ord:d0.ord||Date.now()}));
       if(a0&&own!==a0.owner)B.forEach(b=>put(b.id,'bud',own,b.data));
-      if(after)after(id);else{LS.set('accSel',id);close_();render()}};
+      if(after)after(id);else{if(typ!=='dep')LS.set('accSel',id);close_();render()}};
     if(a0)q(s,'rm').onclick=()=>{if(!confirm('Удалить счёт «'+d0.name+'»? Операции останутся, но без счёта.'))return;B.forEach(b=>del(b.id));del(a0.id);LS.set('accSel','all');close_()};
   });
 }
@@ -1280,20 +1288,33 @@ function txRow(t,showWho,showDate){
 function deckHtml(A,sel,per,p1,p2){
   const a=sel==='all'?null:accOf(sel);
   let h='<div class="deck">';
-  [['all',null]].concat(A.map(x=>[x.id,x])).filter(([id])=>id!==sel).forEach(([id,x])=>{
+  [['all',null]].concat(A.filter(x=>accType(x)!=='dep').map(x=>[x.id,x])).filter(([id])=>id!==sel).forEach(([id,x])=>{
     h+='<button class="strip" data-act="msel" data-id="'+id+'" style="background:'+(x?accCol(x):'linear-gradient(135deg,var(--a),var(--b))')+'">'+(x?esc(x.data.emo||'💳'):'💞')+'<span>'+(x?esc(x.data.name)+(x.owner==='both'?' · семья':''):'Все счета')+'</span><b>'+fmt(x?accBal(x.id):totalBal(A))+'</b></button>'});
   if(!A.length)h='<div class="deck">';
   const rel=myTx().filter(x=>x.data.d>=p1&&x.data.d<=p2&&x.data.t!=='tr'&&x.data.t!=='adj'&&(!a||x.data.acc===a.id));
   const inc=rel.filter(x=>x.data.t==='inc').reduce((s,x)=>s+x.data.a,0),exp=rel.filter(x=>x.data.t==='exp').reduce((s,x)=>s+x.data.a,0);
   const bg=a?'linear-gradient(135deg,'+accCol(a)+',color-mix(in srgb,'+accCol(a)+' 62%,#000))':'linear-gradient(135deg,var(--a),var(--b))';
   h+='<div class="acard" style="background:'+bg+'"><div class="an"><div class="aico">'+(a?esc(a.data.emo||'💳'):'💞')+'</div><span>'+(a?esc(a.data.name)+(a.owner==='both'?' <span class="pill" style="background:rgba(255,255,255,.25)">семья</span>':''):'Все счета')+'</span>'+(a?'<button class="ed" data-act="macc" data-id="'+a.id+'" aria-label="Настроить счёт">✎</button>':'<button class="ed" data-act="mnewacc" aria-label="Новый счёт">＋</button>')+'</div>'+
-    '<div class="lbl">Текущий баланс</div><div class="bal">'+fmt(a?accBal(a.id):totalBal(A))+'</div>'+
+    '<div class="lbl">'+(a?'Текущий баланс':'Всего денег')+'</div><div class="bal">'+fmt(a?accBal(a.id):totalBal(A))+'</div>'+
+    (!a&&A.length?(()=>{const by={card:0,dep:0,cash:0};A.forEach(x=>by[accType(x)]+=accBal(x.id));return '<div style="font-size:12px;opacity:.9;margin-top:2px">💳 '+fmt(by.card)+' · 🏦 '+fmt(by.dep)+' · 💵 '+fmt(by.cash)+'</div>'})():'')+
+    (a&&accType(a)==='dep'?'<div style="font-size:12px;opacity:.9;margin-top:2px">🏦 Депозит'+(a.data.bank?' '+esc(a.data.bank):'')+(a.data.rate?' · '+String(a.data.rate).replace('.',',')+'% годовых ≈ +'+fmt(accBal(a.id)*a.data.rate/100/12)+' в месяц':'')+'</div>':'')+
     '<div class="io"><div>↙ Доходы<b>+'+fmt(inc)+'</b></div><div style="text-align:right">Расходы ↗<b>−'+fmt(exp)+'</b></div></div>';
   if(A.length){const B=a?budsOf(a.id):visBuds(),[m1,m2]=monthRange(todayKey());
     h+='<div class="buds">'+B.map(b=>{const sp=budSpent(b.id,m1,m2),l=b.data.limit-sp;return '<div data-act="mbud" data-id="'+b.id+'" style="cursor:pointer">'+esc(b.data.emo)+' '+esc(b.data.name)+'<b'+(l<0?' style="color:#fecaca"':'')+'>'+fmt(l)+'</b><span style="opacity:.75;font-weight:600">осталось из '+kfmt(b.data.limit)+'</span><div class="bar" style="background:rgba(255,255,255,.22);height:5px"><i style="width:'+Math.min(100,sp/b.data.limit*100)+'%;background:#fff"></i></div></div>'}).join('')+
       '<div data-act="mnewbud" style="cursor:pointer;border:2px dashed rgba(255,255,255,.45);background:none;display:grid;place-items:center;min-width:96px">+ бюджет</div></div>'}
   else h+='<div style="margin-top:12px"><button class="btn" style="background:rgba(255,255,255,.22)" data-act="mnewacc">+ Добавить счёт: Kaspi, наличные…</button></div>';
   return h+'</div></div>';
+}
+function depositsHtml(){
+  const A=accts(),D=A.filter(a=>accType(a)==='dep'),C=A.filter(a=>accType(a)==='cash');
+  const tot=D.reduce((s,a)=>s+accBal(a.id),0),inc=D.reduce((s,a)=>s+(a.data.rate?accBal(a.id)*a.data.rate/100/12:0),0);
+  let h='<div class="card"><div class="shead"><h3>🏦 Депозиты и наличные</h3><button class="lnk" data-act="mnewdep">+ Депозит</button></div>';
+  if(D.length)h+='<div class="sub">На депозитах</div><div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums">'+fmt(tot)+'</div>'+(inc?'<div class="sub">≈ +'+fmt(inc)+' процентов в месяц</div>':'');
+  else h+='<div class="empty">Добавь депозиты Kaspi и Freedom — они войдут в общий баланс и капитал.</div>';
+  D.concat(C).forEach(a=>{const b=accBal(a.id),dep=accType(a)==='dep';
+    h+='<div class="item"><div class="ico" style="background:'+accCol(a)+';color:#fff">'+esc(a.data.emo||(dep?'🐷':'💵'))+'</div><div class="nm" data-act="macc" data-id="'+a.id+'"><div class="t">'+esc(a.data.name)+'</div><div class="s">'+(dep?'депозит'+(a.data.bank?' · '+esc(a.data.bank):'')+(a.data.rate?' · '+String(a.data.rate).replace('.',',')+'%':''):'наличные')+'</div></div><div class="amt">'+fmt(b)+'</div><button class="ibtn" style="background:var(--card2);width:34px;height:34px;font-size:15px" data-act="mdepin" data-id="'+a.id+'" title="Пополнить" aria-label="Пополнить">⇄</button></div>'});
+  if(!C.length)h+='<div style="margin-top:10px"><button class="btn sec sm" data-act="mnewcash">+ Наличные</button></div>';
+  return h+'</div>';
 }
 function upcomingHtml(){
   const t=todayKey(),lim=addDays(t,31);
@@ -1373,7 +1394,7 @@ function capitalHtml(){
   let h='<div class="card"><div class="shead"><h3>🏛 Капитал</h3><button class="lnk" data-act="mnewasset">+ Добавить</button></div><div class="sub">Чистый капитал = всё, что есть, минус все долги</div><div style="font-size:30px;font-weight:800;font-variant-numeric:tabular-nums" class="'+(net<0?'over':'')+'">'+fmt(net)+'</div>';
   h+='<div style="display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--card2);margin-top:8px"><i style="width:'+(tA+tL?tA/(tA+tL)*100:50)+'%;background:var(--g)"></i><i style="flex:1;background:'+(tL?'var(--r)':'var(--card2)')+'"></i></div>';
   h+='<div class="nw"><div><span>Активы</span><b class="pos">'+fmt(tA)+'</b></div><div><span>Обязательства</span><b style="color:var(--r)">'+fmt(tL)+'</b></div></div><div style="margin-top:8px">';
-  if(accP)h+=row('💳','Деньги на счетах',accP);
+  if(accP){const by={card:0,dep:0,cash:0};bals.forEach(([a,b])=>{if(b>0)by[accType(a)]+=b});if(by.card)h+=row('💳','На картах',by.card);if(by.dep)h+=row('🏦','На депозитах',by.dep);if(by.cash)h+=row('💵','Наличные',by.cash)}
   if(sv)h+=row('🐷','Накопления',sv);
   as.forEach(x=>h+=row('🏠',x.data.name,x.data.a,'masset',x.id));
   if(owed)h+=row('↙','Мне должны',owed);
@@ -1393,7 +1414,7 @@ function moneyTab(){
   h+=deckHtml(A,sel,per,p1,p2);
   h+='<div class="seg">'+['m','d','a'].map(k=>'<button class="'+(per===k?'on':'')+'" data-act="mper" data-k="'+k+'">'+PERL[k]+'</button>').join('')+'</div>';
   h+='<div class="qbtns"><button class="p" data-act="mexp">− Расход</button><button data-act="minc">+ Доход</button><button data-act="mtr">⇄ Перевод</button></div><button class="btn sec" data-act="mstmt" style="background:var(--card)">📄 Загрузить выписку Kaspi / Freedom</button><div style="text-align:center;margin-top:-4px"><button class="lnk" data-act="mshare" style="font-size:14px">📲 Отправлять выписку прямо из банка через «Поделиться»</button></div>';
-  h+=upcomingHtml()+dynHtml(sel)+opsHtml(sel,per,p1,p2)+goalsHtml()+debtsHtml()+capitalHtml();
+  h+=depositsHtml()+upcomingHtml()+dynHtml(sel)+opsHtml(sel,per,p1,p2)+goalsHtml()+debtsHtml()+capitalHtml();
   h+='<div style="text-align:center"><button class="lnk" data-act="mreset" style="color:var(--mute);font-weight:600">🧹 Начать учёт денег заново'+(pcfg(me).mStart?' · сейчас с '+dLabel(pcfg(me).mStart):'')+'</button></div>';
   if(!ibx.length)h+='<div class="card"><div class="shead" style="margin:0"><div><h3>📥 Новые оплаты</h3><div class="sub">Пуши и SMS банка, выписки, Apple Pay через «Команды»</div></div><button class="lnk" data-act="minbox">Настроить</button></div></div>';
   return '<div class="wrap">'+h+'</div>';
@@ -1414,6 +1435,9 @@ function moneyAct(a,el,id){
     case 'mstmt':stmtPick();return true;
     case 'mshare':shareHelp();return true;
     case 'mreset':moneyReset();return true;
+    case 'mnewdep':accForm(null,null,'dep');return true;
+    case 'mnewcash':accForm(null,null,'cash');return true;
+    case 'mdepin':{const src=accts().find(a=>a.id!==id&&accType(a)==='card');txForm(null,{type:'tr',acc:src?src.id:undefined,to:id});return true}
     case 'mibx':txForm(null,{inbox:id});return true;
     case 'mnewplan':planForm(null);return true;
     case 'mplan':planForm(get(id));return true;
