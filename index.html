@@ -910,7 +910,14 @@ function stmtPreview(rows,bank,avail,skipped,rates){
   const A=accts(),re=bank?new RegExp(bank,'i'):null;
   let acc=(re&&(A.find(a=>re.test(a.data.name))||{}).id)||(bank||!A.length?'new':(accOf(accSel())?accSel():A[0].id)),open=-1,bal=avail!=null?String(Math.round(avail*100)/100).replace('.',','):'';skipped=skipped||[];
   const sortAll=()=>rows.forEach(r=>{if(!r.man){delete r.cat;delete r.tr;delete r.to;delete r.bud;delete r.guess;Object.assign(r,autoSort(r,acc))}});
-  sortAll();rows.forEach(r=>r.on=true);
+  sortAll();rows.forEach(r=>{r.on=true;r.why=''});
+  // до начала учёта — не берём
+  const ms=pcfg(me).mStart||'';if(ms)rows.forEach(r=>{if(r.d<ms){r.on=false;r.why='до начала учёта ('+dLabel(ms)+')'}});
+  // транзит: деньги пришли и в течение 2 дней ушли переводом той же суммой — не учитываем ни то, ни другое
+  const taken=new Set();
+  rows.forEach((r,i)=>{if(!r.on||r.t!=='inc')return;
+    const j=rows.findIndex((x,k)=>k!==i&&!taken.has(k)&&x.on&&x.t==='exp'&&x.op!=='buy'&&Math.abs(x.a-r.a)<.01&&diffDays(r.d,x.d)>=0&&diffDays(r.d,x.d)<=2);
+    if(j>-1){taken.add(j);taken.add(i);[r,rows[j]].forEach(x=>{x.on=false;x.why='транзит: пришло и сразу ушло — не учитываю'})}});
   const ds=rows.map(r=>r.d).sort(),newName=bank==='Kaspi'?'Kaspi Gold':bank||'Карта';
   const draw=s=>{
     const top=s.scrollTop;
@@ -932,7 +939,7 @@ function stmtPreview(rows,bank,avail,skipped,rates){
     h+='<div class="sub" style="margin:4px 0 8px">Все '+act.length+' операций будут записаны на счёт.'+(fixes?' 🔧 Исправлю суммы у '+fixes+' валютных покупок, записанных раньше в долларах.':'')+(guess?' ❓ Не узнал магазин у '+guess+' — запишу как «Другое», можно поменять сейчас или потом.':'')+(dups?' Уже записаны раньше: '+dups+' (пропущу).':'')+' Нажми на операцию, чтобы сменить категорию.</div>';
     if(skipped.length)h+='<details style="margin-bottom:8px"><summary class="sub" style="cursor:pointer">⚠️ Строк с суммами, которые я не понял: '+skipped.length+' (нажми, чтобы посмотреть)</summary><div class="sub" style="white-space:pre-wrap;font-size:12px;margin-top:6px;max-height:200px;overflow:auto;background:var(--card2);border-radius:10px;padding:8px">'+esc(skipped.slice(0,60).join('\n'))+'</div></details>';
     h+='<div>'+rows.map((r,i)=>{const cats=r.t==='inc'?INC_CATS:EXP_CATS;
-      return '<div class="item" style="'+(r.dup||!r.on?'opacity:.45':'')+'"><button class="chk'+(r.on&&!r.dup?' on':'')+'" data-on="'+i+'" '+(r.dup?'disabled':'')+'></button><div class="ico">'+(r.tr?'⇄':r.guess?'❓':catIco(r.cat))+'</div><div class="nm" data-op="'+i+'"><div class="t">'+esc(r.m)+'</div><div class="s">'+dLabel(r.d)+' · '+(r.dup?'уже есть':r.tr?'перевод → '+esc(accName(r.to)):r.guess?'<span class="over">❓ Другое</span>':esc(r.cat||''))+(r.fx?' · '+String(r.fx.a).replace('.',',')+' '+FXSYM[r.fx.c]+(r.conv?' по курсу':''):'')+(r.fixId?' · 🔧 исправлю':'')+'</div></div><div class="amt'+(r.t==='inc'?' pos':'')+'">'+(r.t==='inc'?'+':'−')+(r.conv&&!r.a?'?':fmt(r.a))+'</div></div>'+
+      return '<div class="item" style="'+(r.dup||!r.on?'opacity:.45':'')+'"><button class="chk'+(r.on&&!r.dup?' on':'')+'" data-on="'+i+'" '+(r.dup?'disabled':'')+'></button><div class="ico">'+(r.tr?'⇄':r.guess?'❓':catIco(r.cat))+'</div><div class="nm" data-op="'+i+'"><div class="t">'+esc(r.m)+'</div><div class="s">'+dLabel(r.d)+' · '+(!r.dup&&!r.on&&r.why?'<b>'+esc(r.why)+'</b>':r.dup?'уже есть':r.tr?'перевод → '+esc(accName(r.to)):r.guess?'<span class="over">❓ Другое</span>':esc(r.cat||''))+(r.fx?' · '+String(r.fx.a).replace('.',',')+' '+FXSYM[r.fx.c]+(r.conv?' по курсу':''):'')+(r.fixId?' · 🔧 исправлю':'')+'</div></div><div class="amt'+(r.t==='inc'?' pos':'')+'">'+(r.t==='inc'?'+':'−')+(r.conv&&!r.a?'?':fmt(r.a))+'</div></div>'+
         (open===i?'<div class="hscroll" style="padding-bottom:10px">'+cats.map(([n,ic])=>'<button class="chip'+(r.cat===n?' on':'')+'" data-pc="'+i+'" data-c="'+esc(n)+'">'+ic+' '+esc(n)+'</button>').join('')+'</div>':'')}).join('')+'</div>';
     h+='<div style="position:sticky;bottom:0;background:var(--card);padding-top:10px"><button class="btn" id="ok">Записать '+act.length+'</button></div>';
     s.innerHTML=h;s.scrollTop=top;
@@ -991,6 +998,32 @@ function shareHelp(){
     '<div class="fld"><input id="fU" readonly></div><button class="btn" id="cp">Скопировать ссылку</button>'+
     '<div class="sub" style="margin-top:12px">Ссылка откроется в Safari. В первый раз войди там в тот же аккаунт, что и в приложении. Записи сразу появятся и в «Мы» на экране «Домой».</div>',
   s=>{q(s,'fU').value=base;q(s,'cp').onclick=async()=>{try{await navigator.clipboard.writeText(base);toast('Скопировано')}catch(e){q(s,'fU').select();toast('Выдели и скопируй')}}});
+}
+/* --- чистый лист: удалить мои траты, счета и новые оплаты --- */
+async function bulkDel(ids){
+  render.hold=true;ids.forEach(id=>items.delete(id));render.hold=false;render();
+  for(let i=0;i<ids.length;i+=200){const {error}=await sb.from('items').delete().in('id',ids.slice(i,i+200));if(error){toast('Не всё удалилось: '+error.message);loadAll();return false}}
+  return true;
+}
+function moneyReset(){
+  const myAcc=all('acct').filter(a=>a.owner===me),accIds=myAcc.map(a=>a.id);
+  const tx=all('tx').filter(t=>t.owner===me),ib=inbox(),bud=all('bud').filter(b=>accIds.includes(b.data.acc));
+  const def=pcfg(me).mStart||shiftMonth(todayKey(),-1);
+  sheet('<h3>🧹 Начать учёт заново</h3><div class="sub" style="margin-bottom:12px">Удалю все твои записи о деньгах за всё время, чтобы начать с чистого листа:</div>'+
+    '<div class="nw" style="margin:0 0 12px"><div><b>'+tx.length+'</b><span>операций (траты, доходы, переводы)</span></div><div><b>'+myAcc.length+'</b><span>счетов'+(bud.length?' и '+bud.length+' бюджетов':'')+'</span></div><div><b>'+ib.length+'</b><span>новых оплат</span></div><div><b>Останутся</b><span>платежи, долги, цели, капитал'+(all('acct').some(a=>a.owner==='both')?', общие семейные счета':'')+'</span></div></div>'+
+    fld('fD','Учитывать операции начиная с',def,'type="date"')+'<div class="sub" style="margin:-4px 0 12px">При загрузке выписки всё, что раньше этой даты, будет пропущено.</div>'+
+    '<button class="btn" id="ok" style="background:var(--r)">Удалить и начать с чистого листа</button><div style="height:8px"></div><button class="btn sec" id="only">Только поменять дату, ничего не удалять</button>',
+  s=>{
+    const saveDate=()=>{const d=q(s,'fD').value||def;put('pcfg-'+me,'pcfg',me,Object.assign({},pcfg(me),{mStart:d}));return d};
+    q(s,'only').onclick=()=>{const d=saveDate();close_();toast('Учёт с '+dLabel(d))};
+    q(s,'ok').onclick=async()=>{
+      if(!confirm('Точно удалить '+tx.length+' операций, '+myAcc.length+' счетов и '+ib.length+' новых оплат? Вернуть будет нельзя.'))return;
+      const d=saveDate();close_();
+      const ok=await bulkDel([...tx,...ib,...bud,...myAcc].map(x=>x.id));
+      LS.set('accSel','all');LS.set('lastAcc','');render();
+      if(ok)toast('Чистый лист с '+dLabel(d)+'. Теперь загрузи выписку');
+    };
+  });
 }
 function stmtPick(){
   let f=$('#stmtFile');if(!f){f=document.createElement('input');f.type='file';f.id='stmtFile';f.accept='.pdf,.csv,.txt,application/pdf,text/csv,text/plain';f.style.display='none';document.body.appendChild(f)}
@@ -1361,6 +1394,7 @@ function moneyTab(){
   h+='<div class="seg">'+['m','d','a'].map(k=>'<button class="'+(per===k?'on':'')+'" data-act="mper" data-k="'+k+'">'+PERL[k]+'</button>').join('')+'</div>';
   h+='<div class="qbtns"><button class="p" data-act="mexp">− Расход</button><button data-act="minc">+ Доход</button><button data-act="mtr">⇄ Перевод</button></div><button class="btn sec" data-act="mstmt" style="background:var(--card)">📄 Загрузить выписку Kaspi / Freedom</button><div style="text-align:center;margin-top:-4px"><button class="lnk" data-act="mshare" style="font-size:14px">📲 Отправлять выписку прямо из банка через «Поделиться»</button></div>';
   h+=upcomingHtml()+dynHtml(sel)+opsHtml(sel,per,p1,p2)+goalsHtml()+debtsHtml()+capitalHtml();
+  h+='<div style="text-align:center"><button class="lnk" data-act="mreset" style="color:var(--mute);font-weight:600">🧹 Начать учёт денег заново'+(pcfg(me).mStart?' · сейчас с '+dLabel(pcfg(me).mStart):'')+'</button></div>';
   if(!ibx.length)h+='<div class="card"><div class="shead" style="margin:0"><div><h3>📥 Новые оплаты</h3><div class="sub">Пуши и SMS банка, выписки, Apple Pay через «Команды»</div></div><button class="lnk" data-act="minbox">Настроить</button></div></div>';
   return '<div class="wrap">'+h+'</div>';
 }
@@ -1379,6 +1413,7 @@ function moneyAct(a,el,id){
     case 'minbox':inboxAdd();return true;
     case 'mstmt':stmtPick();return true;
     case 'mshare':shareHelp();return true;
+    case 'mreset':moneyReset();return true;
     case 'mibx':txForm(null,{inbox:id});return true;
     case 'mnewplan':planForm(null);return true;
     case 'mplan':planForm(get(id));return true;
