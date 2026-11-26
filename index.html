@@ -1084,13 +1084,14 @@ function txForm(t0,opts){
   const st={
     typ:t0?d0.t:ib?ib.data.t:opts.type==='inc'?'inc':opts.type==='tr'?'tr':'exp',
     ex:String(t0?d0.a:ib?ib.data.a:pl?pl.data.a:'').replace('.',','),
-    acc:t0?(d0.acc||''):(opts.acc||(pl&&pl.data.acc)||(rem&&rem.acc)||(opts.shared&&famAcc)||lastAcc||''),
+    acc:t0?(d0.acc||''):(opts.acc||(pl&&pl.data.acc)||(rem&&rem.acc)||(opts.shared&&famAcc)||(accOf(lastAcc)?lastAcc:'')||((accts().find(a=>accType(a)==='card')||{}).id)||''),
     to:t0?(d0.to||''):(opts.to||''),bud:t0?(d0.bud||''):(rem&&rem.bud)||'',
     cat:t0?d0.cat:rem?rem.cat:pl?pl.data.cat:null,
     note:t0?(d0.note||''):ib?ib.data.m:pl?pl.data.title:'',
     d:t0?d0.d:ib?ib.data.d:(tab==='money'||tab==='todo'?todayKey():day),
     shared:t0?!!d0.shared:!!opts.shared
   };
+  if(opts.pre)Object.assign(st,opts.pre);
   if(!accOf(st.acc))st.acc='';if(!accOf(st.to))st.to='';
   if(!st.cat)st.cat=st.typ==='inc'?'Зарплата':LS.get('lastCat','Продукты');
   if(st.typ==='tr'&&!st.acc)st.acc=(accts()[0]||{}).id||'';
@@ -1149,6 +1150,7 @@ function txForm(t0,opts){
     put(t0?t0.id:'tx-'+uid(),'tx',t0?t0.owner:me,d);
     if(ib){rememberCat(ib.data.m,st.cat,st.acc,st.bud);del(ib.id)}
     if(pl)advancePlan(pl);
+    if(opts.after)opts.after(d);
     close_();if(!t0)toast(st.typ==='exp'?'Расход записан':st.typ==='inc'?'Доход записан':'Перевод записан');
   };
   sheet('',draw);
@@ -1316,6 +1318,81 @@ function depositsHtml(){
   if(!C.length)h+='<div style="margin-top:10px"><button class="btn sec sm" data-act="mnewcash">+ Наличные</button></div>';
   return h+'</div>';
 }
+/* --- ожидаю деньги: зарплата, проекты, долги --- */
+const EXK=[['sal','💼 Зарплата','Зарплата'],['proj','🧑‍💻 Проект','Фриланс'],['oth','📦 Другое','Другое']];
+const exps_=()=>all('expect').filter(x=>x.owner===me).sort((a,b)=>(a.data.d||'9').localeCompare(b.data.d||'9'));
+function expectForm(x0,kind0){
+  const d0=x0?x0.data:{kind:kind0||'sal',from:'',a:'',d:'',acc:'',rep:kind0==='sal'?'m':'0',note:''};
+  let kind=d0.kind,acc=d0.acc||'',rep=d0.rep||'0';
+  sheet('<h3>'+(x0?'Ожидаю деньги':'Жду поступление')+'</h3><div class="fld"><label>Что это</label><div class="chips" id="fK"></div><div class="sub" style="margin-top:5px">Если человек должен тебе — лучше добавить в «🤝 Долги»: там видно частичные возвраты. <a href="#" id="toDebt" style="color:var(--acc)">Добавить долг</a></div></div>'+
+    fld('fF','От кого',d0.from,'placeholder="Работодатель, клиент, имя"')+'<div class="mrow">'+fld('fA','Сумма, ₸',d0.a,NUM)+fld('fD','Когда ожидаю',d0.d,'type="date"')+'</div>'+
+    '<div class="fld"><label>Куда придут</label><div class="chips" id="fS"></div></div><div class="fld"><label>Повтор</label><div class="chips" id="fR"></div></div>'+fld('fT','Заметка',d0.note,'placeholder="за что, проект, договор…"')+
+    '<button class="btn" id="ok">Сохранить</button>'+(x0?'<div style="height:8px"></div><button class="btn sec" id="got">✓ Деньги пришли</button><button class="danger" id="rm">Удалить</button>':''),
+  s=>{
+    chips(q(s,'fK'),EXK.map(k=>[k[0],k[1]]),kind,n=>{kind=n;if(n==='sal'&&!x0){rep='m';chips(q(s,'fR'),[['0','Один раз'],['m','Каждый месяц']],rep,v=>rep=v,(n,l)=>l)}},(n,l)=>l);
+    chips(q(s,'fS'),[['','Не важно']].concat(accts().map(a=>[a.id,a.data.emo+' '+a.data.name])),acc,n=>acc=n,(n,l)=>l);
+    chips(q(s,'fR'),[['0','Один раз'],['m','Каждый месяц']],rep,n=>rep=n,(n,l)=>l);
+    q(s,'toDebt').onclick=e=>{e.preventDefault();debtForm(null)};
+    const save=()=>{const from=q(s,'fF').value.trim(),a=num(q(s,'fA').value);if(!from){q(s,'fF').focus();return null}if(!(a>0)){q(s,'fA').focus();return null}
+      const d=q(s,'fD').value,x=Object.assign({},d0,{kind,from,a,d,acc,rep,note:q(s,'fT').value.trim(),dom:d?parse(d).getDate():''});put(x0?x0.id:'expect-'+uid(),'expect',me,x);return x};
+    q(s,'ok').onclick=()=>{if(save())close_()};
+    if(x0){q(s,'got').onclick=()=>{if(save())gotExpect(x0.id)};q(s,'rm').onclick=()=>{if(confirm('Удалить?')){del(x0.id);close_()}}}
+  });
+}
+function gotExpect(id){
+  const x=get(id);if(!x)return;const k=EXK.find(k=>k[0]===x.data.kind)||EXK[2];
+  txForm(null,{type:'inc',pre:{ex:String(x.data.a).replace('.',','),cat:k[2],note:x.data.from+(x.data.note?' · '+x.data.note:''),acc:x.data.acc||'',d:todayKey()},after:t=>{
+    const cur=get(id);if(!cur)return;const rest=cur.data.a-t.a;
+    if(rest>0.009){put(id,'expect',cur.owner,Object.assign({},cur.data,{a:rest}));toast('Осталось получить '+fmt(rest))}
+    else if(cur.data.rep==='m'&&cur.data.d)put(id,'expect',cur.owner,Object.assign({},cur.data,{d:nextDate({d:cur.data.d,rep:'m',dom:cur.data.dom})}));
+    else del(id)}});
+}
+function gotDebt(id){
+  const x=get(id);if(!x)return;const rest=x.data.a-paidOf(x.data);
+  txForm(null,{type:'inc',pre:{ex:String(Math.round(rest*100)/100).replace('.',','),cat:'Возврат',note:'Вернул(а) '+x.data.name,d:todayKey()},after:t=>{
+    const cur=get(id);if(!cur)return;const nd=Object.assign({},cur.data,{pays:(cur.data.pays||[]).concat([{a:t.a,d:t.d}])});nd.done=paidOf(nd)>=nd.a;put(id,'debt',cur.owner,nd);if(nd.done)toast('Долг закрыт 🎉')}});
+}
+function expectHtml(){
+  const t=todayKey(),X=exps_(),D=all('debt').filter(x=>x.owner===me&&!x.data.done&&x.data.dir==='in');
+  const L=X.map(x=>({k:'e',id:x.id,ico:(EXK.find(k=>k[0]===x.data.kind)||EXK[2])[1].split(' ')[0],title:x.data.from,sub:(EXK.find(k=>k[0]===x.data.kind)||EXK[2])[1].split(' ').slice(1).join(' ')+(x.data.rep==='m'?' · каждый месяц':'')+(x.data.note?' · '+x.data.note:'')+(accOf(x.data.acc)?' → '+accName(x.data.acc):''),a:x.data.a,d:x.data.d}))
+    .concat(D.map(x=>({k:'d',id:x.id,ico:'🤝',title:x.data.name,sub:'должен(на) мне'+(x.data.note?' · '+x.data.note:'')+(paidOf(x.data)?' · вернул '+fmt(paidOf(x.data)):''),a:x.data.a-paidOf(x.data),d:x.data.due||''})))
+    .sort((a,b)=>(a.d||'9').localeCompare(b.d||'9'));
+  const tot=L.reduce((s,x)=>s+x.a,0),soon=L.filter(x=>x.d&&diffDays(t,x.d)<=30).reduce((s,x)=>s+x.a,0);
+  let h='<div class="card"><div class="shead"><h3>💰 Ожидаю деньги</h3><button class="lnk" data-act="mnewexp">+ Ожидаю</button></div>';
+  if(!L.length)return h+'<div class="empty">Зарплата, оплата за проекты, кто сколько должен — от кого, сколько и когда. Когда деньги придут, нажми ✓ — запишется доход на нужный счёт.</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="chip" data-act="mnewexp" data-k="sal">💼 Зарплата</button><button class="chip" data-act="mnewexp" data-k="proj">🧑‍💻 Проект</button><button class="chip" data-act="mnewdebt">🤝 Мне должны</button></div></div>';
+  h+='<div class="nw" style="margin:0 0 6px"><div><span>Всего ожидаю</span><b class="pos">'+fmt(tot)+'</b></div><div><span>В ближайшие 30 дней</span><b>'+fmt(soon)+'</b></div></div>';
+  L.forEach(x=>{const dd=x.d?diffDays(t,x.d):null,when=x.d?(dd<0?'<span class="over">просрочено '+(-dd)+' дн.</span>':dd===0?'сегодня':dd===1?'завтра':dLabel(x.d)):'без даты';
+    h+='<div class="item"><div class="ico">'+x.ico+'</div><div class="nm" data-act="'+(x.k==='e'?'mexpe':'mdebt')+'" data-id="'+x.id+'"><div class="t">'+esc(x.title)+'</div><div class="s">'+when+' · '+esc(x.sub)+'</div></div><div class="amt pos">+'+fmt(x.a)+'</div><button class="chk" data-act="'+(x.k==='e'?'mgot':'mgotd')+'" data-id="'+x.id+'" title="Деньги пришли" aria-label="Деньги пришли"></button></div>'});
+  return h+'</div>';
+}
+
+/* --- нужно купить --- */
+const buys=()=>all('buy').filter(x=>x.owner===me||x.owner==='both').sort((a,b)=>(a.data.d||'9').localeCompare(b.data.d||'9')||(a.data.at||'').localeCompare(b.data.at||''));
+function buyForm(x0){
+  const d0=x0?x0.data:{title:'',a:'',d:'',cat:'',note:''};let cat=d0.cat||'',own=x0?x0.owner:me;
+  sheet('<h3>'+(x0?'Покупка':'Нужно купить')+'</h3>'+fld('fT','Что',d0.title,'placeholder="Кроссовки, пылесос, подарок…"')+'<div class="mrow">'+fld('fA','Примерно, ₸',d0.a,NUM)+fld('fD','Купить до',d0.d,'type="date"')+'</div>'+
+    '<div class="fld"><label>Категория</label><div class="hscroll" id="fC"></div></div><div class="fld"><label>Чья покупка</label><div class="chips" id="fO"></div></div>'+fld('fN','Заметка',d0.note,'placeholder="где, ссылка, размер…"')+
+    '<button class="btn" id="ok">Сохранить</button>'+(x0?'<div style="height:8px"></div><button class="btn sec" id="got">✓ Купил(а)</button><button class="danger" id="rm">Удалить</button>':''),
+  s=>{
+    if(!x0)setTimeout(()=>q(s,'fT').focus(),60);
+    const fc=q(s,'fC'),dc=()=>{fc.innerHTML=EXP_CATS.map(([n,i])=>'<button class="chip'+(cat===n?' on':'')+'" data-c="'+esc(n)+'">'+i+' '+esc(n)+'</button>').join('');fc.querySelectorAll('button').forEach(b=>b.onclick=()=>{cat=b.dataset.c;dc()})};dc();
+    q(s,'fT').oninput=e=>{if(x0||cat)return;for(const [re,c] of CAT_RULES)if(re.test(e.target.value)){cat=c;dc();break}};
+    chips(q(s,'fO'),[[me,'👤 Моя'],['both','💞 Общая']],own,n=>own=n,(n,l)=>l);
+    const save=()=>{const title=q(s,'fT').value.trim();if(!title){q(s,'fT').focus();return null}const x=Object.assign({},d0,{title,a:num(q(s,'fA').value)||'',d:q(s,'fD').value,cat,note:q(s,'fN').value.trim(),at:d0.at||new Date().toISOString()});put(x0?x0.id:'buy-'+uid(),'buy',own,x);return x};
+    q(s,'ok').onclick=()=>{if(save())close_()};
+    if(x0){q(s,'got').onclick=()=>{if(save())gotBuy(x0.id)};q(s,'rm').onclick=()=>{if(confirm('Удалить из списка?')){del(x0.id);close_()}}}
+  });
+}
+function gotBuy(id){const x=get(id);if(!x)return;txForm(null,{type:'exp',pre:{ex:x.data.a?String(x.data.a).replace('.',','):'',cat:x.data.cat||LS.get('lastCat','Другое'),note:x.data.title,d:todayKey(),shared:x.owner==='both'},after:()=>{del(id);toast('Куплено ✓')}})}
+function buyHtml(){
+  const B=buys(),t=todayKey(),tot=B.reduce((s,x)=>s+(+x.data.a||0),0);
+  let h='<div class="card"><div class="shead"><h3>🛍 Нужно купить</h3><button class="lnk" data-act="mnewbuy">+ Покупка</button></div>';
+  if(!B.length)return h+'<div class="empty">Запиши, что нужно купить в ближайшее время, и примерную цену — будет видно, сколько денег на это нужно.</div></div>';
+  h+='<div class="sub" style="margin-bottom:4px">Понадобится примерно <b style="color:var(--text)">'+fmt(tot)+'</b>'+(B.some(x=>!x.data.a)?' (не у всех указана цена)':'')+'</div>';
+  B.forEach(x=>{const d=x.data,dd=d.d?diffDays(t,d.d):null;
+    h+='<div class="item"><button class="chk" data-act="mgotb" data-id="'+x.id+'" title="Купил" aria-label="Купил"></button><div class="ico">'+(d.cat?catIco(d.cat):'🛍')+'</div><div class="nm" data-act="mbuy" data-id="'+x.id+'"><div class="t">'+esc(d.title)+(x.owner==='both'?' <span class="pill" style="--pc:var(--b)">вместе</span>':'')+'</div><div class="s">'+[d.d?(dd<0?'<span class="over">надо было до '+dLabel(d.d)+'</span>':'до '+dLabel(d.d)):'',d.note?esc(d.note):''].filter(Boolean).join(' · ')+'</div></div><div class="amt">'+(d.a?fmt(d.a):'—')+'</div></div>'});
+  return h+'</div>';
+}
 function upcomingHtml(){
   const t=todayKey(),lim=addDays(t,31);
   const P=all('plan').filter(p=>p.owner===me||p.owner==='both').map(p=>({k:'p',id:p.id,title:p.data.title,a:p.data.a,d:p.data.d,ico:catIco(p.data.cat),sub:REPS[p.data.rep]+(accOf(p.data.acc)?' · '+accName(p.data.acc):'')}));
@@ -1414,7 +1491,7 @@ function moneyTab(){
   h+=deckHtml(A,sel,per,p1,p2);
   h+='<div class="seg">'+['m','d','a'].map(k=>'<button class="'+(per===k?'on':'')+'" data-act="mper" data-k="'+k+'">'+PERL[k]+'</button>').join('')+'</div>';
   h+='<div class="qbtns"><button class="p" data-act="mexp">− Расход</button><button data-act="minc">+ Доход</button><button data-act="mtr">⇄ Перевод</button></div><button class="btn sec" data-act="mstmt" style="background:var(--card)">📄 Загрузить выписку Kaspi / Freedom</button><div style="text-align:center;margin-top:-4px"><button class="lnk" data-act="mshare" style="font-size:14px">📲 Отправлять выписку прямо из банка через «Поделиться»</button></div>';
-  h+=depositsHtml()+upcomingHtml()+dynHtml(sel)+opsHtml(sel,per,p1,p2)+goalsHtml()+debtsHtml()+capitalHtml();
+  h+=depositsHtml()+expectHtml()+buyHtml()+upcomingHtml()+dynHtml(sel)+opsHtml(sel,per,p1,p2)+goalsHtml()+debtsHtml()+capitalHtml();
   h+='<div style="text-align:center"><button class="lnk" data-act="mreset" style="color:var(--mute);font-weight:600">🧹 Начать учёт денег заново'+(pcfg(me).mStart?' · сейчас с '+dLabel(pcfg(me).mStart):'')+'</button></div>';
   if(!ibx.length)h+='<div class="card"><div class="shead" style="margin:0"><div><h3>📥 Новые оплаты</h3><div class="sub">Пуши и SMS банка, выписки, Apple Pay через «Команды»</div></div><button class="lnk" data-act="minbox">Настроить</button></div></div>';
   return '<div class="wrap">'+h+'</div>';
@@ -1435,6 +1512,13 @@ function moneyAct(a,el,id){
     case 'mstmt':stmtPick();return true;
     case 'mshare':shareHelp();return true;
     case 'mreset':moneyReset();return true;
+    case 'mnewexp':expectForm(null,el.dataset.k);return true;
+    case 'mexpe':expectForm(get(id));return true;
+    case 'mgot':gotExpect(id);return true;
+    case 'mgotd':gotDebt(id);return true;
+    case 'mnewbuy':buyForm(null);return true;
+    case 'mbuy':buyForm(get(id));return true;
+    case 'mgotb':gotBuy(id);return true;
     case 'mnewdep':accForm(null,null,'dep');return true;
     case 'mnewcash':accForm(null,null,'cash');return true;
     case 'mdepin':{const src=accts().find(a=>a.id!==id&&accType(a)==='card');txForm(null,{type:'tr',acc:src?src.id:undefined,to:id});return true}
