@@ -916,6 +916,35 @@ function stmtPreview(rows,bank,avail){
   };
   sheet('',draw);
 }
+/* --- выписка из меню «Поделиться» (быстрая команда открывает сайт с #pdf=BASE64) --- */
+let SHARED=(()=>{const h=location.hash||'';if(/^#(pdf|stmt)=/.test(h)){history.replaceState(null,'',location.pathname+location.search);return h}return null})();
+window.addEventListener('hashchange',()=>{const h=location.hash||'';if(/^#(pdf|stmt)=/.test(h)){history.replaceState(null,'',location.pathname+location.search);SHARED=h;if(session&&me){tab='money';render();takeShared()}}});
+function takeShared(){
+  const h=SHARED;SHARED=null;if(!h)return;
+  setTimeout(()=>{try{
+    if(h.startsWith('#pdf=')){
+      let b=h.slice(5);try{b=decodeURIComponent(b)}catch(e){}
+      b=b.replace(/\s/g,'').replace(/-/g,'+').replace(/_/g,'/').replace(/[^A-Za-z0-9+/=]/g,'');
+      const bin=atob(b),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+      const pdf=bin.slice(0,5)==='%PDF-';
+      stmtImport(new File([u],pdf?'statement.pdf':'statement.txt',{type:pdf?'application/pdf':'text/plain'}));
+    }else{let t=h.slice(6);try{t=decodeURIComponent(t)}catch(e){}stmtImport(new File([t],'statement.txt',{type:'text/plain'}))}
+  }catch(e){toast('Не удалось прочитать выписку')}},400);
+}
+function shareHelp(){
+  const base=location.origin+location.pathname+'#pdf=';
+  sheet('<h3>📲 Отправлять выписку в «Мы» через «Поделиться»</h3><div class="sub" style="margin-bottom:12px">Настраивается один раз, примерно 2 минуты. Потом: в Kaspi или Freedom открываешь выписку → «Поделиться» → <b>«В Мы»</b>, и всё само разложится.</div>'+
+    '<ol style="padding-left:20px;margin:0 0 12px;line-height:1.55;font-size:15px">'+
+    '<li>Открой приложение <b>«Команды»</b> → вкладка «Команды» → <b>«+»</b>.</li>'+
+    '<li>Назови команду <b>«В Мы»</b> (нажми на название вверху).</li>'+
+    '<li>Нажми <b>ⓘ</b> внизу (или «Сведения») → включи <b>«Показывать в меню „Поделиться“»</b>. В типах входа оставь <b>PDF</b> и <b>Файлы</b>.</li>'+
+    '<li>Добавь действие <b>«Кодировать в Base64»</b> (поиск: base64). Вход — «Ввод быстрой команды». Нажми на стрелку и выбери <b>«Переносы строк: Нет»</b>.</li>'+
+    '<li>Добавь действие <b>«Текст»</b>, вставь туда ссылку ниже и сразу после неё переменную <b>«Результат Base64»</b>.</li>'+
+    '<li>Добавь действие <b>«Открыть URL»</b>. Готово.</li></ol>'+
+    '<div class="fld"><input id="fU" readonly></div><button class="btn" id="cp">Скопировать ссылку</button>'+
+    '<div class="sub" style="margin-top:12px">Ссылка откроется в Safari. В первый раз войди там в тот же аккаунт, что и в приложении. Записи сразу появятся и в «Мы» на экране «Домой».</div>',
+  s=>{q(s,'fU').value=base;q(s,'cp').onclick=async()=>{try{await navigator.clipboard.writeText(base);toast('Скопировано')}catch(e){q(s,'fU').select();toast('Выдели и скопируй')}}});
+}
 function stmtPick(){
   let f=$('#stmtFile');if(!f){f=document.createElement('input');f.type='file';f.id='stmtFile';f.accept='.pdf,.csv,.txt,application/pdf,text/csv,text/plain';f.style.display='none';document.body.appendChild(f)}
   f.value='';f.onchange=()=>{const x=f.files[0];if(x)stmtImport(x)};f.click();
@@ -935,7 +964,7 @@ function captureUrl(){
 }
 function inboxAdd(){
   sheet('<h3>📥 Новые оплаты</h3><div class="sub" style="margin-bottom:12px">Сюда попадают оплаты, которые нужно разобрать: выбрать счёт, бюджет и категорию.</div>'+
-    '<button class="btn" id="pf">📄 Загрузить выписку Kaspi / Freedom</button><div class="sub" style="margin:6px 0 16px">PDF из приложения банка (или CSV). Операции сами разложатся по категориям и счёту.</div>'+
+    '<button class="btn" id="pf">📄 Загрузить выписку Kaspi / Freedom</button><div class="sub" style="margin:6px 0 16px">PDF из приложения банка (или CSV). Операции сами разложатся по категориям и счёту. <a href="#" id="sh" style="color:var(--acc)">Отправлять прямо из банка через «Поделиться»</a></div>'+
     '<div class="fld"><label>Или вставь текст пушей или SMS банка (можно сразу несколько)</label><textarea id="fX" style="min-height:110px" placeholder="Покупка 4 890 ₸ Magnum&#10;Оплата 1 200 тг Кофейня"></textarea></div><button class="btn sec" id="px">Разобрать текст</button>'+
     
     '<div class="mlab" style="margin-top:16px">Вручную</div><div class="mrow">'+fld('fA','Сумма, ₸','',NUM)+fld('fM','Где','','placeholder="Magnum"')+'</div><button class="btn sec" id="pm">Добавить</button>'+
@@ -944,6 +973,7 @@ function inboxAdd(){
     const done=n=>{close_();toast(n?'Добавлено: '+n:'Не нашёл сумм в тексте')};
     q(s,'px').onclick=()=>done(addInbox(parseBank(q(s,'fX').value),'text'));
     q(s,'pf').onclick=()=>{close_();stmtPick()};
+    q(s,'sh').onclick=e=>{e.preventDefault();shareHelp()};
     q(s,'pm').onclick=()=>{const a=num(q(s,'fA').value);if(!(a>0))return q(s,'fA').focus();const now=new Date();done(addInbox([{a,m:q(s,'fM').value.trim()||'Оплата',d:todayKey(),time:pad(now.getHours())+':'+pad(now.getMinutes()),t:'exp'}],'hand'))};
     q(s,'ap').onclick=applePayHelp;
   });
@@ -1282,7 +1312,7 @@ function moneyTab(){
       (ibx.length>8?'<div class="sub">и ещё '+(ibx.length-8)+'</div>':'')+'<div class="sub" style="margin-top:8px">Нажми на оплату — выбери счёт, бюджет и категорию.</div></div>'}
   h+=deckHtml(A,sel,per,p1,p2);
   h+='<div class="seg">'+['m','d','a'].map(k=>'<button class="'+(per===k?'on':'')+'" data-act="mper" data-k="'+k+'">'+PERL[k]+'</button>').join('')+'</div>';
-  h+='<div class="qbtns"><button class="p" data-act="mexp">− Расход</button><button data-act="minc">+ Доход</button><button data-act="mtr">⇄ Перевод</button></div><button class="btn sec" data-act="mstmt" style="background:var(--card)">📄 Загрузить выписку Kaspi / Freedom</button>';
+  h+='<div class="qbtns"><button class="p" data-act="mexp">− Расход</button><button data-act="minc">+ Доход</button><button data-act="mtr">⇄ Перевод</button></div><button class="btn sec" data-act="mstmt" style="background:var(--card)">📄 Загрузить выписку Kaspi / Freedom</button><div style="text-align:center;margin-top:-4px"><button class="lnk" data-act="mshare" style="font-size:14px">📲 Отправлять выписку прямо из банка через «Поделиться»</button></div>';
   h+=upcomingHtml()+dynHtml(sel)+opsHtml(sel,per,p1,p2)+goalsHtml()+debtsHtml()+capitalHtml();
   if(!ibx.length)h+='<div class="card"><div class="shead" style="margin:0"><div><h3>📥 Новые оплаты</h3><div class="sub">Пуши и SMS банка, выписки, Apple Pay через «Команды»</div></div><button class="lnk" data-act="minbox">Настроить</button></div></div>';
   return '<div class="wrap">'+h+'</div>';
@@ -1301,6 +1331,7 @@ function moneyAct(a,el,id){
     case 'mtr':if(accts().length<2){toast('Для перевода нужно два счёта');accForm(null);return true}txForm(null,{type:'tr',acc:selAcc});return true;
     case 'minbox':inboxAdd();return true;
     case 'mstmt':stmtPick();return true;
+    case 'mshare':shareHelp();return true;
     case 'mibx':txForm(null,{inbox:id});return true;
     case 'mnewplan':planForm(null);return true;
     case 'mplan':planForm(get(id));return true;
@@ -1401,7 +1432,7 @@ function whoScreen(){
   gate('<h1>Кто ты?</h1><div class="sub">Выбери себя на этом телефоне. Потом можно поменять в настройках.</div><div class="who"><button id="wa" style="background:var(--a)">'+esc(c.emoA)+'<br>'+esc(c.nameA)+'</button><button id="wb" style="background:var(--b)">'+esc(c.emoB)+'<br>'+esc(c.nameB)+'</button></div>',
   s=>{q(s,'wa').onclick=()=>{me='a';LS.set('me','a');start()};q(s,'wb').onclick=()=>{me='b';LS.set('me','b');start()}});
 }
-function start(){$('#tabbar').style.display='';tab='todo';captureUrl();render()}
+function start(){$('#tabbar').style.display='';tab='todo';captureUrl();if(SHARED)tab='money';render();takeShared()}
 
 async function boot(){
   applyTheme();
