@@ -793,24 +793,132 @@ function normAmt(s){s=String(s||'').replace(/[^\d.,]/g,'');if(!s)return NaN;cons
   return parseFloat(s)}
 const AMT_CUR=/([+\-−]?)\s?(\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,](\d{1,2}))?\s?(₸|тг|kzt|тенге)/i;
 const AMT_ANY=/([+\-−]?)\s?(\d{1,3}(?:[   ]\d{3})+|\d{2,})(?:[.,](\d{1,2}))?/;
-function parseBank(text){
-  const out=[],lines=String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+function parseBank(text,stmt){
+  const out=[],lines=String(text||'').split(/\r?\n/).map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
   const cur=lines.some(l=>AMT_CUR.test(l));
   lines.forEach(l=>{
+    // в выписке строка операции начинается с даты; шапку и итоги пропускаем
+    if(stmt&&!/^\d{1,2}[./]\d{1,2}[./]\d{2,4}\b/.test(l)&&!/^\d{4}-\d{2}-\d{2}\b/.test(l))return;
     let d=todayKey(),time='';
     const dm=l.match(/\b(\d{1,2})[./](\d{1,2})[./](\d{2,4})\b/),im=l.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
     if(dm){const y=+dm[3]<100?2000+ +dm[3]:+dm[3],k=y+'-'+pad(+dm[2])+'-'+pad(+dm[1]);if(+dm[2]>=1&&+dm[2]<=12&&+dm[1]>=1&&+dm[1]<=31)d=k}
     else if(im)d=im[0];
     const tm=l.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);if(tm)time=pad(+tm[1])+':'+tm[2];
     let l2=l.replace(/\b\d{1,2}[./]\d{1,2}[./]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}:\d{2}(:\d{2})?\b|\*+\s?\d{4}/g,' ');
-    l2=l2.replace(/(доступно|остаток|баланс)\b.*$/i,' ');
+    l2=l2.replace(/(доступно|остаток|баланс)[\s:].*$/i,' ');
     const m=l2.match(cur?AMT_CUR:AMT_ANY);if(!m)return;
     const a=parseFloat(m[2].replace(/\D/g,'')+(m[3]?'.'+m[3]:''));if(!(a>0))return;
-    const inc=m[1]==='+'||/пополн|поступ|зачисл|перевод от|получен|возврат|кэшбэк|cashback|зарплат/i.test(l);
-    const mer=l2.replace(m[0],' ').replace(/покупка|оплата|списание|платеж|платёж|пополнение|поступление|зачисление|успешно|kaspi gold|kaspi|карта|card/gi,' ').replace(/[;|\t"]+/g,' ').replace(/^[\s,.:\-—]+|[\s,.:\-—]+$/g,'').replace(/\s+/g,' ').trim();
-    out.push({a,m:(mer||'Оплата').slice(0,60),d,time,t:inc?'inc':'exp'});
+    const minus=m[1]==='-'||m[1]==='−';
+    const inc=!minus&&(m[1]==='+'||/пополн|поступ|зачисл|перевод от|получен|возврат|кэшбэк|cashback|зарплат/i.test(l));
+    const op=/сняти|снятие|банкомат|atm/i.test(l)?'cash':/перевод/i.test(l)?'tr':inc?'in':'buy';
+    const mer=l2.replace(m[0],' ').replace(/покупк[аи]|оплата|списание|плат[её]ж[и]?|пополнени[яе]|поступлени[яе]|зачислени[яе]|переводы|сняти[яе]|разное|успешно|kaspi gold|карта|card|\bkzt\b|₸/gi,' ').replace(/[;|\t"]+/g,' ').replace(/^[\s,.:\-—+]+|[\s,.:\-—]+$/g,'').replace(/\s+/g,' ').trim();
+    out.push({a,m:(mer||(op==='cash'?'Снятие наличных':'Оплата')).slice(0,60),d,time,t:inc?'inc':'exp',op,raw:l});
   });
   return out;
+}
+/* ====== выписка Kaspi / Freedom: чтение PDF и авторазбор ====== */
+const PDFJS='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/';
+let pdfjs=null;
+async function pdfLines(file){
+  if(!pdfjs){pdfjs=await import(PDFJS+'pdf.min.mjs');pdfjs.GlobalWorkerOptions.workerSrc=PDFJS+'pdf.worker.min.mjs'}
+  const doc=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise,out=[];
+  for(let i=1;i<=doc.numPages;i++){
+    const tc=await (await doc.getPage(i)).getTextContent(),rows=[];
+    tc.items.forEach(it=>{if(!it.str||!it.str.trim())return;const y=it.transform[5],x=it.transform[4];let r=rows.find(r=>Math.abs(r.y-y)<3);if(!r){r={y,c:[]};rows.push(r)}r.c.push([x,it.str])});
+    rows.sort((a,b)=>b.y-a.y).forEach(r=>out.push(r.c.sort((a,b)=>a[0]-b[0]).map(c=>c[1]).join(' ')));
+  }
+  return out;
+}
+const CAT_RULES=[
+  [/wolt|glovo|yandex ?eda|яндекс ?еда|chocofood|delivery club|доставка еды/i,'Доставка еды'],
+  [/yandex ?go|yandex\.go|яндекс ?go|yandex ?taxi|uber|indrive|такси|taxi|onay|автобус|bolt/i,'Такси и транспорт'],
+  [/coffee|кофе|starbucks|caffeine|zebra|costa|travelers/i,'Кофе'],
+  [/азс|helios|sinooil|sinoil|qazaq ?oil|gazprom|газпром|petrol|compass|бензин|топливо|kmg|lukoil|лукойл/i,'Бензин'],
+  [/magnum|small|galmart|anvar|анвар|toimart|metro cash|супермаркет|продукт|market|маркет|fix ?price|interfood|ramstore|minimarket|арзан/i,'Продукты'],
+  [/kfc|mcdonald|burger|pizza|пицц|dodo|додо|salam bro|lanzhou|кафе|cafe|ресторан|restaurant|bistro|бистро|шаурм|donerci|tanuki|kebab|grill|столов|sushi|суши/i,'Кафе и рестораны'],
+  [/beeline|kcell|activ|tele2|altel|kazakhtelecom|казахтелеком|интернет|internet/i,'Связь и интернет'],
+  [/netflix|spotify|apple\.com|itunes|icloud|google|youtube|yandex ?plus|яндекс ?плюс|kinopoisk|ivi|chatgpt|openai|подписк/i,'Подписки'],
+  [/аптек|apteka|pharm|europharma|biosfera|клиник|clinic|стомат|dental|invitro|олимп|медцентр|hospital/i,'Здоровье и аптека'],
+  [/zara|waikiki|bershka|h&m|mango|adidas|nike|defacto|colin|одежд|обув|pull&bear|stradivarius|massimo|uniqlo|lamoda/i,'Одежда и обувь'],
+  [/technodom|технодом|sulpak|сулпак|мечта|mechta|alser|white wind|i-?store|apple store|samsung/i,'Техника'],
+  [/салон|barber|барбер|beauty|красот|летуаль|etoile|золотое яблоко|cosmetic|маникюр|nail/i,'Красота и уход'],
+  [/kinopark|кинопарк|chaplin|чаплин|кинотеатр|cinema|боулинг|bowling|steam|playstation|ticketon|kassir|концерт/i,'Развлечения'],
+  [/fitness|фитнес|спортзал|gym|invictus|decathlon|бассейн/i,'Спорт'],
+  [/алсеко|alseco|коммунал|ерц|энерго|energo|водоканал|газ.?снаб|кск|osi|оси\b/i,'Коммуналка'],
+  [/погашени|кредит|рассрочк|kaspi red|loan|ипотек/i,'Кредиты и долги'],
+  [/air ?astana|fly ?arystan|scat|aviata|chocotravel|отель|hotel|booking|airbnb|railways|ктж|авиа/i,'Путешествия'],
+  [/курс|школ|universit|университ|udemy|coursera|skillbox|книг|book|meloman|меломан/i,'Образование'],
+  [/leroy|леруа|ikea|икеа|hoff|хозтовар|дом и|home|строймаркет/i,'Дом и быт'],
+  [/зоо|zoo|pet|ветклин|вет\.?/i,'Животные'],
+  [/цвет|flower|подар|gift/i,'Подарки'],
+  [/благотвор|фонд|donat|сақтандыр/i,'Благотворительность'],
+  [/wildberries|ozon|kaspi ?магазин|kaspi ?shop|aliexpress|temu/i,'Дом и быт'],
+];
+function autoSort(r,acc){
+  if(r.op==='cash'&&r.t==='exp'){const c=accts().find(a=>/нал/i.test(a.data.name)&&a.id!==acc);if(c)return{tr:true,to:c.id}}
+  const L=mcat(r.m),cats=r.t==='exp'?EXP_CATS:INC_CATS;
+  if(L&&L.cat&&cats.some(c=>c[0]===L.cat))return{cat:L.cat,bud:L.bud||''};
+  if(r.t==='inc')return{cat:/зарплат|salary|з\/п|аванс/i.test(r.raw)?'Зарплата':/возврат|refund|кэшб|cashback|бонус/i.test(r.raw)?'Возврат':'Другое'};
+  if(r.op==='tr')return{};
+  for(const [re,c] of CAT_RULES)if(re.test(r.m)||re.test(r.raw))return{cat:c};
+  return{};
+}
+async function stmtImport(file){
+  toast('Читаю выписку…');
+  let lines;
+  try{lines=(/\.pdf$/i.test(file.name)||file.type==='application/pdf')?await pdfLines(file):(await file.text()).split(/\r?\n/)}
+  catch(e){toast(navigator.onLine?'Не удалось открыть файл':'Для PDF нужен интернет');return}
+  const text=lines.join('\n'),bank=/kaspi/i.test(text)?'Kaspi':/freedom|фридом/i.test(text)?'Freedom':'';
+  let rows=parseBank(text,true);if(!rows.length)rows=parseBank(text);
+  if(!rows.length){toast('Не нашёл операций в файле');return}
+  const am=text.match(/доступно\s+на\s+\S+\s+([+\-−]?\s?\d[\d   ]*(?:[.,]\d{1,2})?)\s*(₸|kzt|тг)/i);
+  const avail=am?(/[-−]/.test(am[1])?-1:1)*normAmt(am[1]):null;
+  stmtPreview(rows,bank,isFinite(avail)?avail:null);
+}
+function stmtPreview(rows,bank,avail){
+  const A=accts(),re=bank?new RegExp(bank,'i'):null;
+  let acc=(re&&(A.find(a=>re.test(a.data.name))||{}).id)||(bank||!A.length?'new':(accOf(accSel())?accSel():A[0].id)),open=-1,sync=avail!=null;
+  const sortAll=()=>rows.forEach(r=>{if(!r.man){delete r.cat;delete r.tr;delete r.to;delete r.bud;Object.assign(r,autoSort(r,acc))}});
+  sortAll();rows.forEach(r=>r.on=true);
+  const ds=rows.map(r=>r.d).sort(),newName=bank==='Kaspi'?'Kaspi Gold':bank||'Карта';
+  const draw=s=>{
+    const top=s.scrollTop;
+    rows.forEach(r=>r.dup=acc!=='new'&&(all('tx').some(t=>t.data.acc===acc&&t.data.d===r.d&&Math.abs(t.data.a-r.a)<.01&&(t.data.t==='tr')===!!r.tr&&(t.data.t==='tr'||t.data.t===r.t))||inbox().some(i=>i.data.d===r.d&&Math.abs(i.data.a-r.a)<.01&&i.data.m===r.m)));
+    const act=rows.filter(r=>r.on&&!r.dup),known=act.filter(r=>r.cat||r.tr).length,dups=rows.filter(r=>r.dup).length;
+    let h='<h3>📄 Выписка'+(bank?' '+bank:'')+'</h3><div class="sub">'+rows.length+' операций · '+dLabel(ds[0])+' — '+dLabel(ds[ds.length-1])+'</div>';
+    h+='<div class="mlab">На какой счёт</div><div class="hscroll">'+A.map(a=>'<button class="macc'+(acc===a.id?' on':'')+'" data-acc="'+a.id+'" style="background:'+accCol(a)+'">'+esc(a.data.emo||'💳')+' '+esc(a.data.name)+'<small>'+fmt(accBal(a.id))+'</small></button>').join('')+'<button class="macc new'+(acc==='new'?' on':'')+'" data-acc="new" style="'+(acc==='new'?'border-style:solid;border-color:var(--text)':'')+'">+ '+esc(newName)+'<small>новый счёт</small></button></div>';
+    if(avail!=null)h+='<label class="sw" style="border:0;padding:4px 0"><span class="sub">Выставить баланс счёта как в выписке: <b style="color:var(--text)">'+fmt(avail)+'</b></span><input type="checkbox" id="sy" '+(sync?'checked':'')+'></label>';
+    h+='<div class="sub" style="margin:4px 0 8px">✅ Разложено автоматически: '+known+(act.length-known?' · ❓ не понял: '+(act.length-known)+' — уйдут в «Новые оплаты»':'')+(dups?' · уже записаны: '+dups+' (пропущу)':'')+'. Нажми на операцию, чтобы сменить категорию.</div>';
+    h+='<div>'+rows.map((r,i)=>{const cats=r.t==='inc'?INC_CATS:EXP_CATS;
+      return '<div class="item" style="'+(r.dup||!r.on?'opacity:.45':'')+'"><button class="chk'+(r.on&&!r.dup?' on':'')+'" data-on="'+i+'" '+(r.dup?'disabled':'')+'></button><div class="ico">'+(r.tr?'⇄':r.cat?catIco(r.cat):'❓')+'</div><div class="nm" data-op="'+i+'"><div class="t">'+esc(r.m)+'</div><div class="s">'+dLabel(r.d)+' · '+(r.dup?'уже есть':r.tr?'перевод → '+esc(accName(r.to)):r.cat?esc(r.cat):'<span class="over">не распознано</span>')+'</div></div><div class="amt'+(r.t==='inc'?' pos':'')+'">'+(r.t==='inc'?'+':'−')+fmt(r.a)+'</div></div>'+
+        (open===i?'<div class="hscroll" style="padding-bottom:10px">'+cats.map(([n,ic])=>'<button class="chip'+(r.cat===n?' on':'')+'" data-pc="'+i+'" data-c="'+esc(n)+'">'+ic+' '+esc(n)+'</button>').join('')+'</div>':'')}).join('')+'</div>';
+    h+='<div style="position:sticky;bottom:0;background:var(--card);padding-top:10px"><button class="btn" id="ok">Записать '+act.length+'</button></div>';
+    s.innerHTML=h;s.scrollTop=top;
+    s.querySelectorAll('[data-acc]').forEach(b=>b.onclick=()=>{acc=b.dataset.acc;sortAll();draw(s)});
+    s.querySelectorAll('[data-on]').forEach(b=>b.onclick=()=>{const r=rows[+b.dataset.on];r.on=!r.on;draw(s)});
+    s.querySelectorAll('[data-op]').forEach(b=>b.onclick=()=>{open=open===+b.dataset.op?-1:+b.dataset.op;draw(s)});
+    s.querySelectorAll('[data-pc]').forEach(b=>b.onclick=()=>{const r=rows[+b.dataset.pc];r.cat=b.dataset.c;r.tr=false;r.to='';r.man=true;r.on=true;open=-1;draw(s)});
+    const sy=q(s,'sy');if(sy)sy.onchange=e=>{sync=e.target.checked};
+    q(s,'ok').onclick=()=>{
+      let id=acc;
+      if(acc==='new'){id='acct-'+uid();put(id,'acct',me,{name:newName,emo:'💳',col:ACOLS[accts().length%ACOLS.length],start:0,ord:Date.now()})}
+      let n=0,u=0;render.hold=true;
+      act.forEach(r=>{
+        if(r.cat||r.tr){const bud=r.bud&&budsOf(id).some(b=>b.id===r.bud)?r.bud:'';
+          put('tx-'+uid(),'tx',me,{t:r.tr?'tr':r.t,a:r.a,cat:r.tr?'Перевод':r.cat,note:r.m,d:r.d,shared:false,acc:id,to:r.tr?r.to:'',bud,src:'stmt'});
+          if(r.man)rememberCat(r.m,r.cat,id,bud);n++}
+        else u+=addInbox([{a:r.a,m:r.m,d:r.d,time:r.time,t:r.t}],'stmt');
+      });
+      if(sync&&avail!=null){const a=get(id);put(id,'acct',a.owner,Object.assign({},a.data,{start:(+a.data.start||0)+avail-accBal(id)}))}
+      render.hold=false;LS.set('accSel',id);close_();render();
+      toast('Записано '+n+(u?', в «Новые оплаты» '+u:''));
+    };
+  };
+  sheet('',draw);
+}
+function stmtPick(){
+  let f=$('#stmtFile');if(!f){f=document.createElement('input');f.type='file';f.id='stmtFile';f.accept='.pdf,.csv,.txt,application/pdf,text/csv,text/plain';f.style.display='none';document.body.appendChild(f)}
+  f.value='';f.onchange=()=>{const x=f.files[0];if(x)stmtImport(x)};f.click();
 }
 function addInbox(list,src){
   const ex=inbox();let n=0;
@@ -827,15 +935,15 @@ function captureUrl(){
 }
 function inboxAdd(){
   sheet('<h3>📥 Новые оплаты</h3><div class="sub" style="margin-bottom:12px">Сюда попадают оплаты, которые нужно разобрать: выбрать счёт, бюджет и категорию.</div>'+
-    '<div class="fld"><label>Вставь текст пушей или SMS банка (можно сразу несколько)</label><textarea id="fX" style="min-height:110px" placeholder="Покупка 4 890 ₸ Magnum&#10;Оплата 1 200 тг Кофейня"></textarea></div><button class="btn" id="px">Разобрать текст</button>'+
-    '<div class="mlab" style="margin-top:16px">Файл выписки (CSV или TXT)</div><button class="btn sec" id="pf">Загрузить файл</button><input type="file" id="fF" accept=".csv,.txt,text/csv,text/plain" style="display:none">'+
+    '<button class="btn" id="pf">📄 Загрузить выписку Kaspi / Freedom</button><div class="sub" style="margin:6px 0 16px">PDF из приложения банка (или CSV). Операции сами разложатся по категориям и счёту.</div>'+
+    '<div class="fld"><label>Или вставь текст пушей или SMS банка (можно сразу несколько)</label><textarea id="fX" style="min-height:110px" placeholder="Покупка 4 890 ₸ Magnum&#10;Оплата 1 200 тг Кофейня"></textarea></div><button class="btn sec" id="px">Разобрать текст</button>'+
+    
     '<div class="mlab" style="margin-top:16px">Вручную</div><div class="mrow">'+fld('fA','Сумма, ₸','',NUM)+fld('fM','Где','','placeholder="Magnum"')+'</div><button class="btn sec" id="pm">Добавить</button>'+
     '<div style="height:14px"></div><button class="btn sec" id="ap">⚡ Авто-запись оплат Apple Pay</button>',
   s=>{
     const done=n=>{close_();toast(n?'Добавлено: '+n:'Не нашёл сумм в тексте')};
     q(s,'px').onclick=()=>done(addInbox(parseBank(q(s,'fX').value),'text'));
-    q(s,'pf').onclick=()=>q(s,'fF').click();
-    q(s,'fF').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{done(addInbox(parseBank(await f.text()),'file'))}catch(e){toast('Не удалось прочитать файл')}};
+    q(s,'pf').onclick=()=>{close_();stmtPick()};
     q(s,'pm').onclick=()=>{const a=num(q(s,'fA').value);if(!(a>0))return q(s,'fA').focus();const now=new Date();done(addInbox([{a,m:q(s,'fM').value.trim()||'Оплата',d:todayKey(),time:pad(now.getHours())+':'+pad(now.getMinutes()),t:'exp'}],'hand'))};
     q(s,'ap').onclick=applePayHelp;
   });
@@ -1174,7 +1282,7 @@ function moneyTab(){
       (ibx.length>8?'<div class="sub">и ещё '+(ibx.length-8)+'</div>':'')+'<div class="sub" style="margin-top:8px">Нажми на оплату — выбери счёт, бюджет и категорию.</div></div>'}
   h+=deckHtml(A,sel,per,p1,p2);
   h+='<div class="seg">'+['m','d','a'].map(k=>'<button class="'+(per===k?'on':'')+'" data-act="mper" data-k="'+k+'">'+PERL[k]+'</button>').join('')+'</div>';
-  h+='<div class="qbtns"><button class="p" data-act="mexp">− Расход</button><button data-act="minc">+ Доход</button><button data-act="mtr">⇄ Перевод</button></div>';
+  h+='<div class="qbtns"><button class="p" data-act="mexp">− Расход</button><button data-act="minc">+ Доход</button><button data-act="mtr">⇄ Перевод</button></div><button class="btn sec" data-act="mstmt" style="background:var(--card)">📄 Загрузить выписку Kaspi / Freedom</button>';
   h+=upcomingHtml()+dynHtml(sel)+opsHtml(sel,per,p1,p2)+goalsHtml()+debtsHtml()+capitalHtml();
   if(!ibx.length)h+='<div class="card"><div class="shead" style="margin:0"><div><h3>📥 Новые оплаты</h3><div class="sub">Пуши и SMS банка, выписки, Apple Pay через «Команды»</div></div><button class="lnk" data-act="minbox">Настроить</button></div></div>';
   return '<div class="wrap">'+h+'</div>';
@@ -1192,6 +1300,7 @@ function moneyAct(a,el,id){
     case 'minc':txForm(null,{type:'inc',acc:selAcc});return true;
     case 'mtr':if(accts().length<2){toast('Для перевода нужно два счёта');accForm(null);return true}txForm(null,{type:'tr',acc:selAcc});return true;
     case 'minbox':inboxAdd();return true;
+    case 'mstmt':stmtPick();return true;
     case 'mibx':txForm(null,{inbox:id});return true;
     case 'mnewplan':planForm(null);return true;
     case 'mplan':planForm(get(id));return true;
@@ -1207,7 +1316,7 @@ function moneyAct(a,el,id){
 }
 
 function render(){
-  if(!session||!me)return;
+  if(!session||!me||render.hold)return;
   const ae=document.activeElement;
   if(ae&&ae.dataset&&ae.dataset.live&&$('#app').contains(ae)){render.pend=true;return}
   const tIn=$('#tIn'),tv=tIn?tIn.value:'',tf=ae&&ae.id==='tIn';
