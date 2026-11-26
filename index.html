@@ -1393,6 +1393,55 @@ function buyHtml(){
     h+='<div class="item"><button class="chk" data-act="mgotb" data-id="'+x.id+'" title="Купил" aria-label="Купил"></button><div class="ico">'+(d.cat?catIco(d.cat):'🛍')+'</div><div class="nm" data-act="mbuy" data-id="'+x.id+'"><div class="t">'+esc(d.title)+(x.owner==='both'?' <span class="pill" style="--pc:var(--b)">вместе</span>':'')+'</div><div class="s">'+[d.d?(dd<0?'<span class="over">надо было до '+dLabel(d.d)+'</span>':'до '+dLabel(d.d)):'',d.note?esc(d.note):''].filter(Boolean).join(' · ')+'</div></div><div class="amt">'+(d.a?fmt(d.a):'—')+'</div></div>'});
   return h+'</div>';
 }
+/* --- план на следующий месяц: сколько отложить на обязательное --- */
+const DEF_MUST=['Продукты','Аренда / ипотека','Коммуналка','Связь и интернет','Кредиты и долги','Подписки','Такси и транспорт','Бензин','Здоровье и аптека'];
+const mustCats=()=>{const m=pcfg(me).mustCats;return Array.isArray(m)?m:DEF_MUST};
+// сколько раз платёж/поступление выпадает на период
+function occIn(d,from,to){let k=d.d,n=0,i=0;while(k&&k<=to&&i++<80){if(k>=from)n++;k=nextDate(Object.assign({},d,{d:k}))}return n}
+function nextPlan(){
+  const t=todayKey(),td=parse(t),n1=key(new Date(td.getFullYear(),td.getMonth()+1,1)),n2=key(new Date(td.getFullYear(),td.getMonth()+2,0)),[,m2]=monthRange(t);
+  const must=mustCats(),ex=myTx().filter(x=>x.data.t==='exp'&&x.data.d<=t);
+  // история: с начала учёта, но не больше 3 месяцев; пересчитываем на «в среднем за месяц»
+  let start=ex.map(x=>x.data.d).sort()[0]||t;const ms=pcfg(me).mStart;if(ms&&ms>start)start=ms;const lim=addDays(t,-91);if(start<lim)start=lim;
+  const days=diffDays(start,t)+1,low=days<14,mon=Math.max(1,Math.round(days/30.44)),by={},cnt={};
+  ex.forEach(x=>{if(x.data.d>=start){by[x.data.cat]=(by[x.data.cat]||0)+x.data.a;cnt[x.data.cat]=(cnt[x.data.cat]||0)+1}});
+  // разовые платежи раз в месяц (аренда, коммуналка) не растягиваем; частые траты (продукты) пересчитываем на месяц
+  const avg=c=>!by[c]?0:low?by[c]:cnt[c]<=mon?by[c]/mon:by[c]*30.44/days;
+  const plans=all('plan').filter(p=>p.owner===me||p.owner==='both'),pc={};let otherPl=0,dueNow=0;
+  plans.forEach(p=>{const v=p.data.a*occIn(p.data,n1,n2);if(must.includes(p.data.cat))pc[p.data.cat]=(pc[p.data.cat]||0)+v;else otherPl+=v;dueNow+=p.data.a*occIn(p.data,'0000-01-01',m2)});
+  const rows=must.map(c=>{const h=avg(c),p=pc[c]||0;return{c,v:Math.max(h,p),src:p>=h&&p>0?'по запланированным платежам':'в среднем по тратам'}}).filter(r=>r.v>0).sort((a,b)=>b.v-a.v);
+  if(otherPl)rows.push({c:'Другие запланированные платежи',v:otherPl,src:'из «Предстоящих»',ico:'🗓'});
+  const total=rows.reduce((s,r)=>s+r.v,0);
+  let income=0,undated=0;
+  all('expect').filter(x=>x.owner===me).forEach(x=>{if(!x.data.d)undated+=x.data.a;else income+=x.data.a*occIn({d:x.data.d,rep:x.data.rep==='m'?'m':'0',dom:x.data.dom},n1,n2)});
+  all('debt').filter(x=>x.owner===me&&!x.data.done&&x.data.dir==='in').forEach(x=>{const r=x.data.a-paidOf(x.data);if(x.data.due&&x.data.due>=n1&&x.data.due<=n2)income+=r});
+  const goals=all('goal').filter(g=>g.owner===me||g.owner==='both').reduce((s,g)=>{const p=goalPlan(g.data);return s+(p?p.per:0)},0);
+  const buy=buys().filter(x=>x.data.d&&x.data.d<=n2).reduce((s,x)=>s+(+x.data.a||0),0);
+  const A=accts(),liquid=A.length?A.filter(a=>accType(a)!=='dep').reduce((s,a)=>s+accBal(a.id),0):balanceOf(me),left=diffDays(t,m2)+1;
+  return{n1,rows,total,days,low,income,undated,goals,buy,free:income-total-goals-buy,liquid,dueNow,left,reserve:Math.max(0,total-income),perDay:Math.max(0,(liquid-dueNow-Math.max(0,total-income))/left),hasData:ex.length>0||plans.length>0};
+}
+function nextPlanHtml(){
+  const P=nextPlan(),mn=MON[parse(P.n1).getMonth()],up=v=>Math.ceil(v/1000)*1000;
+  let h='<div class="card"><div class="shead"><h3>🧭 План на '+mn+'</h3><button class="lnk" data-act="mmust">⚙︎ Категории</button></div>';
+  if(!P.hasData)return h+'<div class="empty">Загрузи выписку или запиши траты — посчитаю, сколько отложить на обязательные расходы в следующем месяце: продукты, аренду, коммуналку, связь, кредиты.</div></div>';
+  h+='<div class="sub">Отложить на обязательные траты</div><div style="font-size:30px;font-weight:800;font-variant-numeric:tabular-nums">≈ '+fmt(up(P.total))+'</div>';
+  h+='<div class="sub">'+(P.low?'⚠️ Данных пока мало (за '+P.days+' дн.) — показываю то, что уже потрачено, и запланированные платежи. Через пару недель расчёт станет точнее.':'По твоим тратам за последние '+P.days+' дн. и запланированным платежам.')+'</div>';
+  const max=Math.max(1,...P.rows.map(r=>r.v));
+  h+='<div style="margin-top:8px">'+P.rows.map(r=>'<div style="padding:6px 0"><div style="display:flex;justify-content:space-between;gap:8px"><span>'+(r.ico||catIco(r.c))+' '+esc(r.c)+' <span class="sub">· '+r.src+'</span></span><span class="amt">'+fmt(r.v)+'</span></div><div class="bar"><i style="width:'+(r.v/max*100)+'%"></i></div></div>').join('')+'</div>';
+  h+='<div class="nw"><div><span>Ожидаю доход в '+MON[parse(P.n1).getMonth()].slice(0,3)+'.</span><b class="pos">'+(P.income?'+'+fmt(P.income):'—')+'</b></div><div><span>Обязательные</span><b>−'+fmt(P.total)+'</b></div>'+
+    (P.goals?'<div><span>На накопления по целям</span><b>−'+fmt(P.goals)+'</b></div>':'')+(P.buy?'<div><span>Покупки из списка</span><b>−'+fmt(P.buy)+'</b></div>':'')+'</div>';
+  if(P.income)h+='<div style="margin-top:10px;padding:12px;border-radius:14px;background:color-mix(in srgb,'+(P.free>=0?'var(--g)':'var(--r)')+' 14%,var(--card2))"><div class="sub">'+(P.free>=0?'Свободно на остальное':'Не хватает')+'</div><div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums">'+fmt(Math.abs(P.free))+'</div>'+(P.free>=0?'<div class="sub">это ≈ '+fmt(P.free/30)+' в день на кафе, покупки и развлечения</div>':'<div class="sub">доход меньше обязательных трат и планов — стоит урезать покупки или взнос в накопления</div>')+'</div>';
+  else h+='<div class="sub" style="margin-top:8px">Добавь зарплату и оплаты за проекты в «💰 Ожидаю деньги» с датой — покажу, сколько останется свободных денег.'+(P.undated?' Сейчас без даты ожидается '+fmt(P.undated)+'.':'')+'</div>';
+  h+='<div class="cmp" style="margin-top:10px">До конца этого месяца ('+P.left+' дн.): на картах и в наличных <b style="color:var(--text)">'+fmt(P.liquid)+'</b>'+(P.dueNow?', из них на обязательные платежи '+fmt(P.dueNow):'')+(P.reserve?(P.dueNow?' и':', из них')+' '+fmt(P.reserve)+' стоит оставить на обязательные траты '+mn.slice(0,3)+'., которые не покроет ожидаемый доход':'')+'. Свободно до <b style="color:var(--text)">≈ '+fmt(P.perDay)+' в день</b>.</div>';
+  return h+'</div>';
+}
+function mustForm(){
+  let sel=mustCats().slice();
+  sheet('<h3>Обязательные траты</h3><div class="sub" style="margin-bottom:12px">Отметь категории, без которых не прожить месяц. По ним считается, сколько отложить на следующий месяц.</div><div class="chips" id="fC"></div><div style="height:14px"></div><button class="btn" id="ok">Сохранить</button><button class="danger" id="df" style="color:var(--mute)">Вернуть как было</button>',
+  s=>{const fc=q(s,'fC'),dc=()=>{fc.innerHTML=EXP_CATS.map(([n,i])=>'<button class="chip'+(sel.includes(n)?' on':'')+'" data-c="'+esc(n)+'">'+i+' '+esc(n)+'</button>').join('');fc.querySelectorAll('button').forEach(b=>b.onclick=()=>{const c=b.dataset.c;sel=sel.includes(c)?sel.filter(x=>x!==c):sel.concat([c]);dc()})};dc();
+    q(s,'ok').onclick=()=>{put('pcfg-'+me,'pcfg',me,Object.assign({},pcfg(me),{mustCats:sel}));close_()};
+    q(s,'df').onclick=()=>{sel=DEF_MUST.slice();dc()}});
+}
 function upcomingHtml(){
   const t=todayKey(),lim=addDays(t,31);
   const P=all('plan').filter(p=>p.owner===me||p.owner==='both').map(p=>({k:'p',id:p.id,title:p.data.title,a:p.data.a,d:p.data.d,ico:catIco(p.data.cat),sub:REPS[p.data.rep]+(accOf(p.data.acc)?' · '+accName(p.data.acc):'')}));
@@ -1491,7 +1540,7 @@ function moneyTab(){
   h+=deckHtml(A,sel,per,p1,p2);
   h+='<div class="seg">'+['m','d','a'].map(k=>'<button class="'+(per===k?'on':'')+'" data-act="mper" data-k="'+k+'">'+PERL[k]+'</button>').join('')+'</div>';
   h+='<div class="qbtns"><button class="p" data-act="mexp">− Расход</button><button data-act="minc">+ Доход</button><button data-act="mtr">⇄ Перевод</button></div><button class="btn sec" data-act="mstmt" style="background:var(--card)">📄 Загрузить выписку Kaspi / Freedom</button><div style="text-align:center;margin-top:-4px"><button class="lnk" data-act="mshare" style="font-size:14px">📲 Отправлять выписку прямо из банка через «Поделиться»</button></div>';
-  h+=depositsHtml()+expectHtml()+buyHtml()+upcomingHtml()+dynHtml(sel)+opsHtml(sel,per,p1,p2)+goalsHtml()+debtsHtml()+capitalHtml();
+  h+=nextPlanHtml()+depositsHtml()+expectHtml()+buyHtml()+upcomingHtml()+dynHtml(sel)+opsHtml(sel,per,p1,p2)+goalsHtml()+debtsHtml()+capitalHtml();
   h+='<div style="text-align:center"><button class="lnk" data-act="mreset" style="color:var(--mute);font-weight:600">🧹 Начать учёт денег заново'+(pcfg(me).mStart?' · сейчас с '+dLabel(pcfg(me).mStart):'')+'</button></div>';
   if(!ibx.length)h+='<div class="card"><div class="shead" style="margin:0"><div><h3>📥 Новые оплаты</h3><div class="sub">Пуши и SMS банка, выписки, Apple Pay через «Команды»</div></div><button class="lnk" data-act="minbox">Настроить</button></div></div>';
   return '<div class="wrap">'+h+'</div>';
@@ -1517,6 +1566,7 @@ function moneyAct(a,el,id){
     case 'mgot':gotExpect(id);return true;
     case 'mgotd':gotDebt(id);return true;
     case 'mnewbuy':buyForm(null);return true;
+    case 'mmust':mustForm();return true;
     case 'mbuy':buyForm(get(id));return true;
     case 'mgotb':gotBuy(id);return true;
     case 'mnewdep':accForm(null,null,'dep');return true;
