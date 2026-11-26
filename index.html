@@ -298,7 +298,7 @@ const dLabel=k=>{const d=parse(k);return d.getDate()+' '+MONG[d.getMonth()]};
 const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('show'),1800)}
 
-const EXP_CATS=[['Продукты','🛒'],['Кафе и рестораны','🍽'],['Доставка еды','🛵'],['Кофе','☕'],['Такси и транспорт','🚕'],['Бензин','⛽'],['Машина: обслуживание','🔧'],['Кредиты и долги','💳'],['Аренда / ипотека','🏠'],['Коммуналка','💡'],['Связь и интернет','📱'],['Подписки','📺'],['Одежда и обувь','👕'],['Красота и уход','💅'],['Здоровье и аптека','💊'],['Спорт','🏋️'],['Развлечения','🎬'],['Свидания','❤️'],['Подарки','🎁'],['Путешествия','✈️'],['Образование','📚'],['Дом и быт','🧺'],['Техника','💻'],['Животные','🐾'],['Работа и бизнес','💼'],['Благотворительность','🤲'],['Другое','📦']];
+const EXP_CATS=[['Продукты','🛒'],['Кафе и рестораны','🍽'],['Доставка еды','🛵'],['Кофе','☕'],['Такси и транспорт','🚕'],['Бензин','⛽'],['Машина: обслуживание','🔧'],['Кредиты и долги','💳'],['Аренда / ипотека','🏠'],['Коммуналка','💡'],['Связь и интернет','📱'],['Подписки','📺'],['Одежда и обувь','👕'],['Красота и уход','💅'],['Здоровье и аптека','💊'],['Спорт','🏋️'],['Развлечения','🎬'],['Свидания','❤️'],['Подарки','🎁'],['Путешествия','✈️'],['Образование','📚'],['Дом и быт','🧺'],['Техника','💻'],['Животные','🐾'],['Работа и бизнес','💼'],['Благотворительность','🤲'],['Переводы людям','👤'],['Другое','📦']];
 const INC_CATS=[['Зарплата','💰'],['Бизнес','💼'],['Фриланс','🧑‍💻'],['Подарок','🎁'],['Возврат','↩️'],['Другое','📦']];
 const catIco=c=>((EXP_CATS.find(x=>x[0]===c)||INC_CATS.find(x=>x[0]===c)||[0,'📦'])[1]);
 const MEALS=[['Завтрак','🍳'],['Обед','🍲'],['Ужин','🍝'],['Перекус','🍎']];
@@ -792,13 +792,21 @@ function normAmt(s){s=String(s||'').replace(/[^\d.,]/g,'');if(!s)return NaN;cons
   else if(p>-1&&!(/\.\d{1,2}$/.test(s)&&s.split('.').length===2))s=s.replace(/\./g,'');
   return parseFloat(s)}
 const AMT_CUR=/([+\-−]?)\s?(\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,](\d{1,2}))?\s?(₸|тг|kzt|тенге)/i;
+const AMT_DEC=/([+\-−]?)\s?(\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)[.,](\d{2})(?!\d)/;
+const DATE_ANY=/\b\d{1,2}[./]\d{1,2}[./]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b/g;
+const DATE_START=/^(?:\d{1,4}[\s.)]+)?(?:\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{4}-\d{2}-\d{2})\b/;
+const SUMMARY=/остаток|доступно на|итого|всего за|за период/i;
 const AMT_ANY=/([+\-−]?)\s?(\d{1,3}(?:[   ]\d{3})+|\d{2,})(?:[.,](\d{1,2}))?/;
 function parseBank(text,stmt){
-  const out=[],lines=String(text||'').split(/\r?\n/).map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const out=[];out.skipped=[];
+  let lines=String(text||'').split(/\r?\n/).map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
   const cur=lines.some(l=>AMT_CUR.test(l));
+  const hasAmt=l=>AMT_CUR.test(l)||AMT_DEC.test(l.replace(DATE_ANY,' '));
+  if(stmt){ // строка операции могла разъехаться на 2–3 строки PDF — склеиваем
+    const m=[];for(let i=0;i<lines.length;i++){let l=lines[i];if(DATE_START.test(l)&&!hasAmt(l)){for(let j=1;j<=2&&i+1<lines.length&&!DATE_START.test(lines[i+1]);j++){l+=' '+lines[++i];if(hasAmt(l))break}}m.push(l)}lines=m}
   lines.forEach(l=>{
     // в выписке строка операции начинается с даты; шапку и итоги пропускаем
-    if(stmt&&!/^\d{1,2}[./]\d{1,2}[./]\d{2,4}\b/.test(l)&&!/^\d{4}-\d{2}-\d{2}\b/.test(l))return;
+    if(stmt&&(!DATE_START.test(l)||SUMMARY.test(l))){if(hasAmt(l))out.skipped.push(l);return}
     let d=todayKey(),time='';
     const dm=l.match(/\b(\d{1,2})[./](\d{1,2})[./](\d{2,4})\b/),im=l.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
     if(dm){const y=+dm[3]<100?2000+ +dm[3]:+dm[3],k=y+'-'+pad(+dm[2])+'-'+pad(+dm[1]);if(+dm[2]>=1&&+dm[2]<=12&&+dm[1]>=1&&+dm[1]<=31)d=k}
@@ -806,7 +814,7 @@ function parseBank(text,stmt){
     const tm=l.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);if(tm)time=pad(+tm[1])+':'+tm[2];
     let l2=l.replace(/\b\d{1,2}[./]\d{1,2}[./]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}:\d{2}(:\d{2})?\b|\*+\s?\d{4}/g,' ');
     l2=l2.replace(/(доступно|остаток|баланс)[\s:].*$/i,' ');
-    const m=l2.match(cur?AMT_CUR:AMT_ANY);if(!m)return;
+    const m=stmt?(l2.match(AMT_CUR)||l2.match(AMT_DEC)):l2.match(cur?AMT_CUR:AMT_ANY);if(!m){if(stmt)out.skipped.push(l);return}
     const a=parseFloat(m[2].replace(/\D/g,'')+(m[3]?'.'+m[3]:''));if(!(a>0))return;
     const minus=m[1]==='-'||m[1]==='−';
     const inc=!minus&&(m[1]==='+'||/пополн|поступ|зачисл|перевод от|получен|возврат|кэшбэк|cashback|зарплат/i.test(l));
@@ -830,13 +838,14 @@ async function pdfLines(file){
   return out;
 }
 const CAT_RULES=[
+  [/wildberries|ozon|kaspi ?магазин|kaspi ?shop|aliexpress|temu/i,'Дом и быт'],
   [/wolt|glovo|yandex ?eda|яндекс ?еда|chocofood|delivery club|доставка еды/i,'Доставка еды'],
   [/yandex ?go|yandex\.go|яндекс ?go|yandex ?taxi|uber|indrive|такси|taxi|onay|автобус|bolt/i,'Такси и транспорт'],
   [/coffee|кофе|starbucks|caffeine|zebra|costa|travelers/i,'Кофе'],
   [/азс|helios|sinooil|sinoil|qazaq ?oil|gazprom|газпром|petrol|compass|бензин|топливо|kmg|lukoil|лукойл/i,'Бензин'],
   [/magnum|small|galmart|anvar|анвар|toimart|metro cash|супермаркет|продукт|market|маркет|fix ?price|interfood|ramstore|minimarket|арзан/i,'Продукты'],
   [/kfc|mcdonald|burger|pizza|пицц|dodo|додо|salam bro|lanzhou|кафе|cafe|ресторан|restaurant|bistro|бистро|шаурм|donerci|tanuki|kebab|grill|столов|sushi|суши/i,'Кафе и рестораны'],
-  [/beeline|kcell|activ|tele2|altel|kazakhtelecom|казахтелеком|интернет|internet/i,'Связь и интернет'],
+  [/beeline|kcell|activ|tele2|altel|kazakhtelecom|казахтелеком|internet|интернет-провайдер/i,'Связь и интернет'],
   [/netflix|spotify|apple\.com|itunes|icloud|google|youtube|yandex ?plus|яндекс ?плюс|kinopoisk|ivi|chatgpt|openai|подписк/i,'Подписки'],
   [/аптек|apteka|pharm|europharma|biosfera|клиник|clinic|стомат|dental|invitro|олимп|медцентр|hospital/i,'Здоровье и аптека'],
   [/zara|waikiki|bershka|h&m|mango|adidas|nike|defacto|colin|одежд|обув|pull&bear|stradivarius|massimo|uniqlo|lamoda/i,'Одежда и обувь'],
@@ -852,16 +861,15 @@ const CAT_RULES=[
   [/зоо|zoo|pet|ветклин|вет\.?/i,'Животные'],
   [/цвет|flower|подар|gift/i,'Подарки'],
   [/благотвор|фонд|donat|сақтандыр/i,'Благотворительность'],
-  [/wildberries|ozon|kaspi ?магазин|kaspi ?shop|aliexpress|temu/i,'Дом и быт'],
 ];
 function autoSort(r,acc){
   if(r.op==='cash'&&r.t==='exp'){const c=accts().find(a=>/нал/i.test(a.data.name)&&a.id!==acc);if(c)return{tr:true,to:c.id}}
   const L=mcat(r.m),cats=r.t==='exp'?EXP_CATS:INC_CATS;
   if(L&&L.cat&&cats.some(c=>c[0]===L.cat))return{cat:L.cat,bud:L.bud||''};
   if(r.t==='inc')return{cat:/зарплат|salary|з\/п|аванс/i.test(r.raw)?'Зарплата':/возврат|refund|кэшб|cashback|бонус/i.test(r.raw)?'Возврат':'Другое'};
-  if(r.op==='tr')return{};
+  if(r.op==='tr')return{cat:'Переводы людям'};
   for(const [re,c] of CAT_RULES)if(re.test(r.m)||re.test(r.raw))return{cat:c};
-  return{};
+  return{cat:'Другое',guess:true};
 }
 async function stmtImport(file){
   toast('Читаю выписку…');
@@ -873,45 +881,48 @@ async function stmtImport(file){
   if(!rows.length){toast('Не нашёл операций в файле');return}
   const am=text.match(/доступно\s+на\s+\S+\s+([+\-−]?\s?\d[\d   ]*(?:[.,]\d{1,2})?)\s*(₸|kzt|тг)/i);
   const avail=am?(/[-−]/.test(am[1])?-1:1)*normAmt(am[1]):null;
-  stmtPreview(rows,bank,isFinite(avail)?avail:null);
+  stmtPreview(rows,bank,isFinite(avail)?avail:null,rows.skipped||[]);
 }
-function stmtPreview(rows,bank,avail){
+function stmtPreview(rows,bank,avail,skipped){
   const A=accts(),re=bank?new RegExp(bank,'i'):null;
-  let acc=(re&&(A.find(a=>re.test(a.data.name))||{}).id)||(bank||!A.length?'new':(accOf(accSel())?accSel():A[0].id)),open=-1,sync=avail!=null;
-  const sortAll=()=>rows.forEach(r=>{if(!r.man){delete r.cat;delete r.tr;delete r.to;delete r.bud;Object.assign(r,autoSort(r,acc))}});
+  let acc=(re&&(A.find(a=>re.test(a.data.name))||{}).id)||(bank||!A.length?'new':(accOf(accSel())?accSel():A[0].id)),open=-1,bal=avail!=null?String(Math.round(avail*100)/100).replace('.',','):'';skipped=skipped||[];
+  const sortAll=()=>rows.forEach(r=>{if(!r.man){delete r.cat;delete r.tr;delete r.to;delete r.bud;delete r.guess;Object.assign(r,autoSort(r,acc))}});
   sortAll();rows.forEach(r=>r.on=true);
   const ds=rows.map(r=>r.d).sort(),newName=bank==='Kaspi'?'Kaspi Gold':bank||'Карта';
   const draw=s=>{
     const top=s.scrollTop;
-    rows.forEach(r=>r.dup=acc!=='new'&&(all('tx').some(t=>t.data.acc===acc&&t.data.d===r.d&&Math.abs(t.data.a-r.a)<.01&&(t.data.t==='tr')===!!r.tr&&(t.data.t==='tr'||t.data.t===r.t))||inbox().some(i=>i.data.d===r.d&&Math.abs(i.data.a-r.a)<.01&&i.data.m===r.m)));
-    const act=rows.filter(r=>r.on&&!r.dup),known=act.filter(r=>r.cat||r.tr).length,dups=rows.filter(r=>r.dup).length;
+    rows.forEach(r=>r.dup=acc!=='new'&&(all('tx').some(t=>t.data.acc===acc&&t.data.d===r.d&&Math.abs(t.data.a-r.a)<.01&&(t.data.t==='tr')===!!r.tr&&(t.data.t==='tr'||t.data.t===r.t))));
+    const act=rows.filter(r=>r.on&&!r.dup),guess=act.filter(r=>r.guess).length,dups=rows.filter(r=>r.dup).length;
     let h='<h3>📄 Выписка'+(bank?' '+bank:'')+'</h3><div class="sub">'+rows.length+' операций · '+dLabel(ds[0])+' — '+dLabel(ds[ds.length-1])+'</div>';
     h+='<div class="mlab">На какой счёт</div><div class="hscroll">'+A.map(a=>'<button class="macc'+(acc===a.id?' on':'')+'" data-acc="'+a.id+'" style="background:'+accCol(a)+'">'+esc(a.data.emo||'💳')+' '+esc(a.data.name)+'<small>'+fmt(accBal(a.id))+'</small></button>').join('')+'<button class="macc new'+(acc==='new'?' on':'')+'" data-acc="new" style="'+(acc==='new'?'border-style:solid;border-color:var(--text)':'')+'">+ '+esc(newName)+'<small>новый счёт</small></button></div>';
-    if(avail!=null)h+='<label class="sw" style="border:0;padding:4px 0"><span class="sub">Выставить баланс счёта как в выписке: <b style="color:var(--text)">'+fmt(avail)+'</b></span><input type="checkbox" id="sy" '+(sync?'checked':'')+'></label>';
-    h+='<div class="sub" style="margin:4px 0 8px">✅ Разложено автоматически: '+known+(act.length-known?' · ❓ не понял: '+(act.length-known)+' — уйдут в «Новые оплаты»':'')+(dups?' · уже записаны: '+dups+' (пропущу)':'')+'. Нажми на операцию, чтобы сменить категорию.</div>';
+    h+='<div class="fld" style="margin-top:8px"><label>Сколько сейчас на этой карте по данным банка, ₸</label><input id="bb" '+NUM+' value="'+esc(bal)+'" placeholder="посмотри в приложении банка"><div class="sub" style="margin-top:4px">'+(avail!=null?'Взял из выписки. ':'')+'Баланс счёта выставится ровно таким. Пусто — посчитается по операциям.</div></div>';
+    h+='<div class="sub" style="margin:4px 0 8px">Все '+act.length+' операций будут записаны на счёт.'+(guess?' ❓ Не узнал магазин у '+guess+' — запишу как «Другое», можно поменять сейчас или потом.':'')+(dups?' Уже записаны раньше: '+dups+' (пропущу).':'')+' Нажми на операцию, чтобы сменить категорию.</div>';
+    if(skipped.length)h+='<details style="margin-bottom:8px"><summary class="sub" style="cursor:pointer">⚠️ Строк с суммами, которые я не понял: '+skipped.length+' (нажми, чтобы посмотреть)</summary><div class="sub" style="white-space:pre-wrap;font-size:12px;margin-top:6px;max-height:200px;overflow:auto;background:var(--card2);border-radius:10px;padding:8px">'+esc(skipped.slice(0,60).join('\n'))+'</div></details>';
     h+='<div>'+rows.map((r,i)=>{const cats=r.t==='inc'?INC_CATS:EXP_CATS;
-      return '<div class="item" style="'+(r.dup||!r.on?'opacity:.45':'')+'"><button class="chk'+(r.on&&!r.dup?' on':'')+'" data-on="'+i+'" '+(r.dup?'disabled':'')+'></button><div class="ico">'+(r.tr?'⇄':r.cat?catIco(r.cat):'❓')+'</div><div class="nm" data-op="'+i+'"><div class="t">'+esc(r.m)+'</div><div class="s">'+dLabel(r.d)+' · '+(r.dup?'уже есть':r.tr?'перевод → '+esc(accName(r.to)):r.cat?esc(r.cat):'<span class="over">не распознано</span>')+'</div></div><div class="amt'+(r.t==='inc'?' pos':'')+'">'+(r.t==='inc'?'+':'−')+fmt(r.a)+'</div></div>'+
+      return '<div class="item" style="'+(r.dup||!r.on?'opacity:.45':'')+'"><button class="chk'+(r.on&&!r.dup?' on':'')+'" data-on="'+i+'" '+(r.dup?'disabled':'')+'></button><div class="ico">'+(r.tr?'⇄':r.guess?'❓':catIco(r.cat))+'</div><div class="nm" data-op="'+i+'"><div class="t">'+esc(r.m)+'</div><div class="s">'+dLabel(r.d)+' · '+(r.dup?'уже есть':r.tr?'перевод → '+esc(accName(r.to)):r.guess?'<span class="over">❓ Другое</span>':esc(r.cat||''))+'</div></div><div class="amt'+(r.t==='inc'?' pos':'')+'">'+(r.t==='inc'?'+':'−')+fmt(r.a)+'</div></div>'+
         (open===i?'<div class="hscroll" style="padding-bottom:10px">'+cats.map(([n,ic])=>'<button class="chip'+(r.cat===n?' on':'')+'" data-pc="'+i+'" data-c="'+esc(n)+'">'+ic+' '+esc(n)+'</button>').join('')+'</div>':'')}).join('')+'</div>';
     h+='<div style="position:sticky;bottom:0;background:var(--card);padding-top:10px"><button class="btn" id="ok">Записать '+act.length+'</button></div>';
     s.innerHTML=h;s.scrollTop=top;
     s.querySelectorAll('[data-acc]').forEach(b=>b.onclick=()=>{acc=b.dataset.acc;sortAll();draw(s)});
     s.querySelectorAll('[data-on]').forEach(b=>b.onclick=()=>{const r=rows[+b.dataset.on];r.on=!r.on;draw(s)});
     s.querySelectorAll('[data-op]').forEach(b=>b.onclick=()=>{open=open===+b.dataset.op?-1:+b.dataset.op;draw(s)});
-    s.querySelectorAll('[data-pc]').forEach(b=>b.onclick=()=>{const r=rows[+b.dataset.pc];r.cat=b.dataset.c;r.tr=false;r.to='';r.man=true;r.on=true;open=-1;draw(s)});
-    const sy=q(s,'sy');if(sy)sy.onchange=e=>{sync=e.target.checked};
+    s.querySelectorAll('[data-pc]').forEach(b=>b.onclick=()=>{const r=rows[+b.dataset.pc];r.cat=b.dataset.c;r.tr=false;r.to='';r.man=true;r.guess=false;r.on=true;open=-1;draw(s)});
+    q(s,'bb').oninput=e=>{bal=e.target.value};
     q(s,'ok').onclick=()=>{
       let id=acc;
       if(acc==='new'){id='acct-'+uid();put(id,'acct',me,{name:newName,emo:'💳',col:ACOLS[accts().length%ACOLS.length],start:0,ord:Date.now()})}
       let n=0,u=0;render.hold=true;
+      const ibx=inbox();
       act.forEach(r=>{
-        if(r.cat||r.tr){const bud=r.bud&&budsOf(id).some(b=>b.id===r.bud)?r.bud:'';
-          put('tx-'+uid(),'tx',me,{t:r.tr?'tr':r.t,a:r.a,cat:r.tr?'Перевод':r.cat,note:r.m,d:r.d,shared:false,acc:id,to:r.tr?r.to:'',bud,src:'stmt'});
-          if(r.man)rememberCat(r.m,r.cat,id,bud);n++}
-        else u+=addInbox([{a:r.a,m:r.m,d:r.d,time:r.time,t:r.t}],'stmt');
+        const bud=r.bud&&budsOf(id).some(b=>b.id===r.bud)?r.bud:'';
+        put('tx-'+uid(),'tx',me,{t:r.tr?'tr':r.t,a:r.a,cat:r.tr?'Перевод':(r.cat||'Другое'),note:r.m,d:r.d,shared:false,acc:id,to:r.tr?r.to:'',bud,src:'stmt'});
+        if(r.man)rememberCat(r.m,r.cat,id,bud);n++;
+        // если эта операция раньше попала в «Новые оплаты» — убираем её оттуда
+        ibx.filter(i=>!i.gone&&i.data.d===r.d&&Math.abs(i.data.a-r.a)<.01).forEach(i=>{i.gone=1;del(i.id);u++});
       });
-      if(sync&&avail!=null){const a=get(id);put(id,'acct',a.owner,Object.assign({},a.data,{start:(+a.data.start||0)+avail-accBal(id)}))}
+      const bv=num(bal);if(isFinite(bv)){const a=get(id);put(id,'acct',a.owner,Object.assign({},a.data,{start:(+a.data.start||0)+bv-accBal(id)}))}
       render.hold=false;LS.set('accSel',id);close_();render();
-      toast('Записано '+n+(u?', в «Новые оплаты» '+u:''));
+      toast('Записано '+n+(u?', убрал из «Новых оплат» '+u:'')+(isFinite(num(bal))?' · баланс '+fmt(num(bal)):''));
     };
   };
   sheet('',draw);
